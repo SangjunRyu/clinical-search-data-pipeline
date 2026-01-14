@@ -1,0 +1,45 @@
+version: "3.8"
+
+networks:
+  data-pipeline:
+    driver: bridge
+
+services:
+  spark-master:
+    build: ./spark
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+    ports:
+      - "7077:7077"   # Spark submit
+      - "8181:8080"   # Spark Master UI
+    volumes:
+      - ./spark/jobs:/opt/spark/jobs
+    networks:
+      - data-pipeline
+
+  spark-worker-1:
+    build: ./spark
+    container_name: spark-worker-1
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=1
+    networks:
+      - data-pipeline
+
+  spark-worker-2:
+    build: ./spark
+    container_name: spark-worker-2
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=1
+    networks:
+      - data-pipeline
