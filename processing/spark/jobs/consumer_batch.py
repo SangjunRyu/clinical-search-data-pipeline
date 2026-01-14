@@ -1,7 +1,19 @@
 # 테스트를 위한 batch job
 # 세션 별 클릭 수, 일자 별 이벤트 수 집계
 
+import yaml
+import os
 from pyspark.sql import SparkSession
+
+def load_config(path="config/config.yaml"):
+    with open(path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    # Kafka brokers override
+    brokers_env = os.getenv("KAFKA_BROKERS")
+    if brokers_env:
+        config["kafka"]["brokers"] = brokers_env.split(",")
+
 from pyspark.sql.functions import (
     col,
     from_json,
@@ -23,6 +35,8 @@ spark = (
 )
 
 spark.sparkContext.setLogLevel("WARN")
+config = load_config()
+kafka_brokers = ",".join(config["kafka"]["brokers"])
 
 # -----------------------
 # Kafka batch read
@@ -32,7 +46,7 @@ kafka_df = (
     .format("kafka")
     .option(
         "kafka.bootstrap.servers",
-        "10.0.0.207:9092,10.0.0.207:9093,10.0.0.207:9094"
+        kafka_brokers
     )
     .option("subscribe", "tripclick_raw_logs")
     .option("startingOffsets", "earliest")
