@@ -1,0 +1,16 @@
+# TODO: Diagram, 방화벽 구성, 정책, 네트워크, 인스턴스 타입 등 정리예정
+
+## EC2 Instance Types
+
+- Kafka Producer (Ingestion)
+  - Instance: t3.micro
+  - Reason:
+    - 비용 최소화
+    - 배치 전송 기반 구조
+    - CPU credit 소모 이슈 확인 및 로깅 방식 개선 경험
+
+- Kafka Broker
+  - Instance: t3.small
+  - Reason:
+    - 브로커 안정성 확보
+    - 디스크 I/O 및 네트워크 고려
