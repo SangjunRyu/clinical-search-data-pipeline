@@ -240,9 +240,11 @@ apache-airflow-providers-slack==8.5.0
 
 ```bash
 cd orchestration
-
+sudo chown -R 50000:0 logs dags plugins config
+로 권한 바꾸어야 도커 compose 가능
 # 초기화 및 시작
-docker-compose up -d
+
+docker compose up -d
 
 # Connection 설정
 ./scripts/init_connections.sh

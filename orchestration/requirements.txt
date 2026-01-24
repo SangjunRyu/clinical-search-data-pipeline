@@ -1,9 +1,8 @@
-# Airflow Providers
-apache-airflow-providers-docker==3.8.0
-apache-airflow-providers-apache-spark==4.5.0
-apache-airflow-providers-amazon==8.16.0
-apache-airflow-providers-slack==8.5.0
-apache-airflow-providers-postgres==5.10.0
+# Airflow Providers (Airflow 2.10.5 호환)
+apache-airflow-providers-docker
+apache-airflow-providers-apache-spark
+apache-airflow-providers-amazon
+apache-airflow-providers-postgres
 
 # Utils
-pyyaml>=6.0
+pyyaml

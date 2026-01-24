@@ -94,12 +94,14 @@ TripClick 데이터 파이프라인 인프라 구성 문서
 |------|----------|------|--------|------|------|
 | Spark Master | m5.large | 2 | 8GB | Spark 클러스터 관리 | SparkSubmit 엔드포인트 |
 | Spark Worker x2 | m5.large | 2 | 8GB | Spark 작업 실행 | Streaming, Batch 처리 |
+spark master와 worker는 연습프로젝트라 같은 노드에 설치하고 docker compose로 구성
 
 ### Orchestration Layer
 
 | 서버 | 인스턴스 | vCPU | Memory | 용도 | 비고 |
 |------|----------|------|--------|------|------|
-| Airflow Server | t3.medium | 2 | 4GB | DAG 스케줄링, 오케스트레이션 | Webserver, Scheduler, Worker 포함 |
+| Airflow Server | m5.large | 2 | 4GB | DAG 스케줄링, 오케스트레이션 | Webserver, Scheduler, Worker 포함 |
+ebs 8gb로 하니 space부족으로 16gb로 증설
 
 ### Gold Layer (Data Mart & BI)
 
