@@ -21,7 +21,10 @@ x-airflow-common: &airflow-common
     - ./logs:/opt/airflow/logs
     - ./plugins:/opt/airflow/plugins
     - ./config:/opt/airflow/config
+    - /var/run/docker.sock:/var/run/docker.sock
   user: "${AIRFLOW_UID:-50000}:0"
+  group_add:
+    - "999" # /var/run/docker.sock 실행을 위해 그룹추가
   depends_on: &airflow-common-depends-on
     redis:
       condition: service_healthy

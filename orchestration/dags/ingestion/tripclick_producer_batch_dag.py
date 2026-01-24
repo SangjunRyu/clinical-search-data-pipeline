@@ -65,12 +65,13 @@ with DAG(
     producer_server0 = DockerOperator(
         task_id="producer_server0_batch",
         image=PRODUCER_IMAGE,
+        force_pull=False,
         command=[
-            "batch",
+            "--mode", "batch",
             "--file", "/app/data/date={{ ds }}/events.json",
             "--topic", "tripclick_raw_logs",
         ],
-        docker_conn_id="docker_server0",
+        docker_url="tcp://10.0.0.43:2375",
         network_mode="host",
         environment={
             "KAFKA_BROKERS": KAFKA_BROKERS,
@@ -88,6 +89,11 @@ with DAG(
                 type="bind",
                 read_only=True,
             ),
+            Mount(
+              source="/home/ubuntu/ingestion/logs",
+              target="/app/logs",
+              type="bind",
+          ),
         ],
         mount_tmp_dir=False,
         auto_remove="success",
