@@ -3,14 +3,22 @@
 ## EC2 Instance Types
 
 - Kafka Producer (Ingestion)
-  - Instance: t3.micro
+  - Instance: m5.large
   - Reason:
-    - 비용 최소화
-    - 배치 전송 기반 구조
-    - CPU credit 소모 이슈 확인 및 로깅 방식 개선 경험
+    - CPU 크레딧 이슈로 인해 t타입 대신 m타입을 이용하였음. 
 
 - Kafka Broker
   - Instance: t3.small
   - Reason:
     - 브로커 안정성 확보
     - 디스크 I/O 및 네트워크 고려
+
+
+- Spark Server (Processing)
+  - Instance: m5.large
+  - Reason:
+    - 브로커 안정성 확보
+    - 디스크 I/O 및 네트워크 고려
+
+나머지 BI, 데이터 마트 구성용 서버 및 airflow 서버도 작성예정
+

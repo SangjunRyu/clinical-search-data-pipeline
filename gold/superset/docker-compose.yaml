@@ -1,0 +1,57 @@
+version: "3.8"
+
+services:
+  # =========================
+  # Superset Web
+  # =========================
+  superset:
+    image: apache/superset:3.1.0
+    container_name: superset
+    ports:
+      - "8088:8088"
+    environment:
+      SUPERSET_SECRET_KEY: "tripclick-superset-secret-key-change-in-production"
+      SUPERSET_LOAD_EXAMPLES: "false"
+      DATABASE_HOST: superset-db
+      DATABASE_PORT: 5432
+      DATABASE_DB: superset
+      DATABASE_USER: superset
+      DATABASE_PASSWORD: superset
+    volumes:
+      - ./superset_config.py:/app/pythonpath/superset_config.py
+      - superset-data:/app/superset_home
+    depends_on:
+      superset-db:
+        condition: service_healthy
+    command: >
+      bash -c "
+        pip install psycopg2-binary &&
+        superset db upgrade &&
+        superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin || true &&
+        superset init &&
+        gunicorn --bind 0.0.0.0:8088 --workers 4 --timeout 120 'superset.app:create_app()'
+      "
+    restart: always
+
+  # =========================
+  # Superset Metastore (PostgreSQL)
+  # =========================
+  superset-db:
+    image: postgres:15
+    container_name: superset-db
+    environment:
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: superset
+      POSTGRES_DB: superset
+    volumes:
+      - superset-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "superset"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+volumes:
+  superset-data:
+  superset-db-data:

@@ -1,0 +1,9 @@
+# Kafka 브로커 설정 예시
+# 이 파일을 config.yaml로 복사하여 실제 값으로 수정하세요
+# cp config.yaml.example config.yaml
+
+kafka:
+  brokers:
+    - <KAFKA_BROKER_1>:9092
+    - <KAFKA_BROKER_2>:9093
+    - <KAFKA_BROKER_3>:9094

@@ -1,2 +1,69 @@
-# kafka 설정파일 제외
-webserver/config/config.yaml
+# =========================
+# Config files (민감 정보)
+# =========================
+**/config/config.yaml
+**/config/*.yaml
+!**/config/*.example.yaml
+
+# =========================
+# Logs
+# =========================
+**/logs/
+*.log
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.egg-info/
+.eggs/
+*.egg
+.venv/
+venv/
+ENV/
+
+# =========================
+# IDE
+# =========================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# =========================
+# Docker
+# =========================
+docker-compose.override.yaml
+
+# =========================
+# Airflow
+# =========================
+airflow.db
+airflow-webserver.pid
+
+# =========================
+# Secrets / Credentials
+# =========================
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+secrets.yaml
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Temporary
+# =========================
+*.tmp
+*.bak
+.cache/
