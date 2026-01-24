@@ -76,3 +76,116 @@
 2026-01-18 15:39:05,684 | INFO | tripclick-producer | progress sent=75000 topic=tripclick_raw_logs last_session=abuagp55iyy2hyvwfdip3j45 event_ts=2026-01-01T15:59:03.855349+00:00
 2026-01-18 15:39:05,750 | INFO | tripclick-producer | progress sent=76000 topic=tripclick_raw_logs last_session=josvhq3ypdbr0b45wum5h255 event_ts=2026-01-01T15:59:44.533844+00:00
 2026-01-18 15:39:15,863 | INFO | tripclick-producer | DONE total_sent=76242 file=/home/ubuntu/server1/date=2026-01-01/events.json
+
+
+2026-01-24 10:09:10,129 | INFO | tripclick-producer | START file=data/server0/date=2026-01-01/events.json topic=tripclick_raw_logs mode=realtime brokers=['10.0.0.207:9092', '10.0.0.207:9093', '10.0.0.207:9094'] xxhash=False
+2026-01-24 10:09:10,811 | INFO | tripclick-producer | Loaded 75990 records, first_event=2026-01-01T15:00:01.902456+00:00, base_time=2026-01-24T10:09:10.129908+00:00
+2026-01-24 10:10:49,061 | INFO | tripclick-producer | progress sent=1000 topic=tripclick_raw_logs session=xxnry1453dgiff55jvnasqqj event_ts=2026-01-01T15:01:40.151114+00:00 dedup_key=3349eb58
+2026-01-24 10:11:54,231 | INFO | tripclick-producer | progress sent=2000 topic=tripclick_raw_logs session=jdr15255qpv4ca452glwyk45 event_ts=2026-01-01T15:02:45.321640+00:00 dedup_key=516c50c8
+2026-01-24 10:13:23,269 | INFO | tripclick-producer | progress sent=3000 topic=tripclick_raw_logs session=zv10yn45q4ppndqpiqcygj45 event_ts=2026-01-01T15:04:14.359664+00:00 dedup_key=fe860d60
+2026-01-24 10:14:04,108 | INFO | tripclick-producer | progress sent=4000 topic=tripclick_raw_logs session=3wyxws55dmwzvjujgrzgyi45 event_ts=2026-01-01T15:04:55.198747+00:00 dedup_key=21e23844
+2026-01-24 10:14:19,783 | INFO | tripclick-producer | START file=data/server1/date=2026-01-01/events.json topic=tripclick_raw_logs mode=batch brokers=['10.0.0.207:9092', '10.0.0.207:9093', '10.0.0.207:9094'] xxhash=False
+2026-01-24 10:14:19,968 | INFO | tripclick-producer | progress sent=1000 topic=tripclick_raw_logs session=nur21p3iwwq4idrc5vplqoe3 event_ts=2026-01-01T15:01:42.983078+00:00
+2026-01-24 10:14:20,039 | INFO | tripclick-producer | progress sent=2000 topic=tripclick_raw_logs session=fhrxmvy1lg4xc2zxtjlr1i45 event_ts=2026-01-01T15:02:51.105117+00:00
+2026-01-24 10:14:20,120 | INFO | tripclick-producer | progress sent=3000 topic=tripclick_raw_logs session=0c1wvnbz2t2t4v553d0h4f55 event_ts=2026-01-01T15:04:12.701111+00:00
+2026-01-24 10:14:20,206 | INFO | tripclick-producer | progress sent=4000 topic=tripclick_raw_logs session=lizydo2osaoyaq55cxpmpz45 event_ts=2026-01-01T15:04:51.414008+00:00
+2026-01-24 10:14:20,291 | INFO | tripclick-producer | progress sent=5000 topic=tripclick_raw_logs session=5pqkwh45tsvqw3f53ghw3r45 event_ts=2026-01-01T15:05:32.355163+00:00
+2026-01-24 10:14:20,374 | INFO | tripclick-producer | progress sent=6000 topic=tripclick_raw_logs session=p0fkm2a4g2uenh45f3ymke45 event_ts=2026-01-01T15:06:19.155494+00:00
+2026-01-24 10:14:20,459 | INFO | tripclick-producer | progress sent=7000 topic=tripclick_raw_logs session=by3aj155qyq1l2ynkvkyjvvj event_ts=2026-01-01T15:07:15.901051+00:00
+2026-01-24 10:14:20,543 | INFO | tripclick-producer | progress sent=8000 topic=tripclick_raw_logs session=uy50stn2mhyrty203aidk245 event_ts=2026-01-01T15:08:33.486516+00:00
+2026-01-24 10:14:20,614 | INFO | tripclick-producer | progress sent=9000 topic=tripclick_raw_logs session=l4ewzs553p5wgx451ajjzb45 event_ts=2026-01-01T15:09:17.482605+00:00
+2026-01-24 10:14:20,686 | INFO | tripclick-producer | progress sent=10000 topic=tripclick_raw_logs session=25txvv45g3ve3z45agyfjhbg event_ts=2026-01-01T15:09:59.884799+00:00
+2026-01-24 10:14:20,771 | INFO | tripclick-producer | progress sent=11000 topic=tripclick_raw_logs session=vtjgaf45vldvys55wgxd2dzz event_ts=2026-01-01T15:10:46.267318+00:00
+2026-01-24 10:14:20,843 | INFO | tripclick-producer | progress sent=12000 topic=tripclick_raw_logs session=ucdkhznfwuptcizfoirfchqz event_ts=2026-01-01T15:11:27.619697+00:00
+2026-01-24 10:14:20,928 | INFO | tripclick-producer | progress sent=13000 topic=tripclick_raw_logs session=nu4cxb450jrmj445ja4p33b2 event_ts=2026-01-01T15:12:34.109669+00:00
+2026-01-24 10:14:21,011 | INFO | tripclick-producer | progress sent=14000 topic=tripclick_raw_logs session=t5idxv55nhwps3ijvfwpbu33 event_ts=2026-01-01T15:13:27.382181+00:00
+2026-01-24 10:14:21,096 | INFO | tripclick-producer | progress sent=15000 topic=tripclick_raw_logs session=y5ljk145jyesdj55baivzijh event_ts=2026-01-01T15:14:03.031349+00:00
+2026-01-24 10:14:21,194 | INFO | tripclick-producer | progress sent=16000 topic=tripclick_raw_logs session=m4bau2uzomxg1om2ohkgtxny event_ts=2026-01-01T15:14:44.823027+00:00
+2026-01-24 10:14:21,283 | INFO | tripclick-producer | progress sent=17000 topic=tripclick_raw_logs session=nhx2rl45vcv3t4bs2vtfpy45 event_ts=2026-01-01T15:15:23.954842+00:00
+2026-01-24 10:14:21,368 | INFO | tripclick-producer | progress sent=18000 topic=tripclick_raw_logs session=kyjdth45y4pvuc55j5ceh5na event_ts=2026-01-01T15:16:05.990678+00:00
+2026-01-24 10:14:21,441 | INFO | tripclick-producer | progress sent=19000 topic=tripclick_raw_logs session=2ybf22riblrsapizrgw03rei event_ts=2026-01-01T15:17:20.964060+00:00
+2026-01-24 10:14:21,550 | INFO | tripclick-producer | progress sent=20000 topic=tripclick_raw_logs session=pf2rmw55zrwomsr2ja0jfp45 event_ts=2026-01-01T15:18:06.160993+00:00
+2026-01-24 10:14:21,622 | INFO | tripclick-producer | progress sent=21000 topic=tripclick_raw_logs session=gvfmzhvnwl3yoy45s20y5345 event_ts=2026-01-01T15:18:49.552050+00:00
+2026-01-24 10:14:21,706 | INFO | tripclick-producer | progress sent=22000 topic=tripclick_raw_logs session=hdaid155552oj455cnwaym3v event_ts=2026-01-01T15:19:30.764188+00:00
+2026-01-24 10:14:21,777 | INFO | tripclick-producer | progress sent=23000 topic=tripclick_raw_logs session=ypqksp55ea14oj55uqn4tjun event_ts=2026-01-01T15:20:24.241406+00:00
+2026-01-24 10:14:21,849 | INFO | tripclick-producer | progress sent=24000 topic=tripclick_raw_logs session=2sqq3l45yaouox45ux4zeq55 event_ts=2026-01-01T15:21:22.601519+00:00
+2026-01-24 10:14:21,934 | INFO | tripclick-producer | progress sent=25000 topic=tripclick_raw_logs session=cm1kkz45itnpiy55hm5co345 event_ts=2026-01-01T15:22:32.020371+00:00
+2026-01-24 10:14:22,006 | INFO | tripclick-producer | progress sent=26000 topic=tripclick_raw_logs session=iu3pj345mqfvrye0cmgp52zh event_ts=2026-01-01T15:23:11.665442+00:00
+2026-01-24 10:14:22,113 | INFO | tripclick-producer | progress sent=27000 topic=tripclick_raw_logs session=05ufftq5tq5obnegiotkeouv event_ts=2026-01-01T15:23:52.578718+00:00
+2026-01-24 10:14:22,200 | INFO | tripclick-producer | progress sent=28000 topic=tripclick_raw_logs session=t5ong24543fi3njxjg3rt455 event_ts=2026-01-01T15:24:27.966021+00:00
+2026-01-24 10:14:22,272 | INFO | tripclick-producer | progress sent=29000 topic=tripclick_raw_logs session=5t4mbamy5qk2mv55o4ko0345 event_ts=2026-01-01T15:25:07.321651+00:00
+2026-01-24 10:14:22,358 | INFO | tripclick-producer | progress sent=30000 topic=tripclick_raw_logs session=wmijyxvzm5ydvd3drohjro45 event_ts=2026-01-01T15:26:25.918392+00:00
+2026-01-24 10:14:22,443 | INFO | tripclick-producer | progress sent=31000 topic=tripclick_raw_logs session=bg1junmiimy3h4vuhtm5wnmg event_ts=2026-01-01T15:27:10.114266+00:00
+2026-01-24 10:14:22,539 | INFO | tripclick-producer | progress sent=32000 topic=tripclick_raw_logs session=pljdzx45rs30fa55i35a5045 event_ts=2026-01-01T15:27:49.886230+00:00
+2026-01-24 10:14:22,629 | INFO | tripclick-producer | progress sent=33000 topic=tripclick_raw_logs session=4khotxm21jvm54e1ogyc3p55 event_ts=2026-01-01T15:28:30.210570+00:00
+2026-01-24 10:14:22,700 | INFO | tripclick-producer | progress sent=34000 topic=tripclick_raw_logs session=mvfczenebgtkdr55yl1d3cqo event_ts=2026-01-01T15:29:25.438121+00:00
+2026-01-24 10:14:22,787 | INFO | tripclick-producer | progress sent=35000 topic=tripclick_raw_logs session=1vojvozdorg41cerrxl0ci55 event_ts=2026-01-01T15:30:22.842412+00:00
+2026-01-24 10:14:22,859 | INFO | tripclick-producer | progress sent=36000 topic=tripclick_raw_logs session=pyklcd45ec2bhdvgpb1oxofo event_ts=2026-01-01T15:31:19.080255+00:00
+2026-01-24 10:14:22,943 | INFO | tripclick-producer | progress sent=37000 topic=tripclick_raw_logs session=hrynuwegpnvc5x55ngy2wgj2 event_ts=2026-01-01T15:31:56.233468+00:00
+2026-01-24 10:14:23,064 | INFO | tripclick-producer | progress sent=38000 topic=tripclick_raw_logs session=v351jeuz3uyirfyz5jlczs55 event_ts=2026-01-01T15:32:25.491665+00:00
+2026-01-24 10:14:23,137 | INFO | tripclick-producer | progress sent=39000 topic=tripclick_raw_logs session=21o4yt2qzjmewq45tl4bldai event_ts=2026-01-01T15:32:59.417328+00:00
+2026-01-24 10:14:23,222 | INFO | tripclick-producer | progress sent=40000 topic=tripclick_raw_logs session=3hrfku55htkhvgavsijdu1uu event_ts=2026-01-01T15:33:33.425197+00:00
+2026-01-24 10:14:23,295 | INFO | tripclick-producer | progress sent=41000 topic=tripclick_raw_logs session=vkpkgo2zrgcmy521jjldkyes event_ts=2026-01-01T15:34:11.913298+00:00
+2026-01-24 10:14:23,368 | INFO | tripclick-producer | progress sent=42000 topic=tripclick_raw_logs session=bfskqoieytmw3m5551ay4x45 event_ts=2026-01-01T15:34:58.950986+00:00
+2026-01-24 10:14:23,452 | INFO | tripclick-producer | progress sent=43000 topic=tripclick_raw_logs session=j5odo545anmzau550gfh4wjv event_ts=2026-01-01T15:35:42.937763+00:00
+2026-01-24 10:14:23,524 | INFO | tripclick-producer | progress sent=44000 topic=tripclick_raw_logs session=bagldi45reojyon1cubeoq45 event_ts=2026-01-01T15:36:24.366372+00:00
+2026-01-24 10:14:23,617 | INFO | tripclick-producer | progress sent=45000 topic=tripclick_raw_logs session=exq3jxiktg5wou554iypvg45 event_ts=2026-01-01T15:36:59.142238+00:00
+2026-01-24 10:14:23,688 | INFO | tripclick-producer | progress sent=46000 topic=tripclick_raw_logs session=hj5ufgewe03yio55za2bpo3o event_ts=2026-01-01T15:37:43.156426+00:00
+2026-01-24 10:14:23,761 | INFO | tripclick-producer | progress sent=47000 topic=tripclick_raw_logs session=grfwx55554zlzzjsa1zs04ai event_ts=2026-01-01T15:38:20.351773+00:00
+2026-01-24 10:14:23,886 | INFO | tripclick-producer | progress sent=48000 topic=tripclick_raw_logs session=kwyoxr452m3g1b55nzdpjwvr event_ts=2026-01-01T15:39:00.976291+00:00
+2026-01-24 10:14:23,958 | INFO | tripclick-producer | progress sent=49000 topic=tripclick_raw_logs session=lqcy0f554dh5ffyk1fldy545 event_ts=2026-01-01T15:40:13.774438+00:00
+2026-01-24 10:14:24,043 | INFO | tripclick-producer | progress sent=50000 topic=tripclick_raw_logs session=pgjdm3mw4umwk4jkm3e5sj45 event_ts=2026-01-01T15:40:47.927733+00:00
+2026-01-24 10:14:24,138 | INFO | tripclick-producer | progress sent=51000 topic=tripclick_raw_logs session=sdnpcd45dvmpmi451vyxwcqj event_ts=2026-01-01T15:41:22.077685+00:00
+2026-01-24 10:14:24,209 | INFO | tripclick-producer | progress sent=52000 topic=tripclick_raw_logs session=pudr1m55yfleka55tiats2ns event_ts=2026-01-01T15:42:02.083052+00:00
+2026-01-24 10:14:24,298 | INFO | tripclick-producer | progress sent=53000 topic=tripclick_raw_logs session=rystwxed0h3vky45kcdz2a55 event_ts=2026-01-01T15:42:41.830856+00:00
+2026-01-24 10:14:24,374 | INFO | tripclick-producer | progress sent=54000 topic=tripclick_raw_logs session=xlqsd3bezl1ygm3zxq3hbafn event_ts=2026-01-01T15:43:24.145735+00:00
+2026-01-24 10:14:24,446 | INFO | tripclick-producer | progress sent=55000 topic=tripclick_raw_logs session=5pc1miyvz5xu05ryfzwgdkaz event_ts=2026-01-01T15:44:24.584525+00:00
+2026-01-24 10:14:24,519 | INFO | tripclick-producer | progress sent=56000 topic=tripclick_raw_logs session=hx1ahs55y1w3fd55mq4uhnrn event_ts=2026-01-01T15:45:09.386652+00:00
+2026-01-24 10:14:24,602 | INFO | tripclick-producer | progress sent=57000 topic=tripclick_raw_logs session=yvv1a1vcfavy4dqzmxan5d55 event_ts=2026-01-01T15:45:42.286248+00:00
+2026-01-24 10:14:24,675 | INFO | tripclick-producer | progress sent=58000 topic=tripclick_raw_logs session=fhoeec45rlyjn445clgv4145 event_ts=2026-01-01T15:46:09.861450+00:00
+2026-01-24 10:14:24,747 | INFO | tripclick-producer | progress sent=59000 topic=tripclick_raw_logs session=ib3jnp55ggwr2x2rusotn145 event_ts=2026-01-01T15:46:51.765315+00:00
+2026-01-24 10:14:24,830 | INFO | tripclick-producer | progress sent=60000 topic=tripclick_raw_logs session=djlyis550hgr1r55bcpa1sqa event_ts=2026-01-01T15:47:32.749142+00:00
+2026-01-24 10:14:24,956 | INFO | tripclick-producer | progress sent=61000 topic=tripclick_raw_logs session=1kjr0q553sdxtoz3zdx11255 event_ts=2026-01-01T15:48:17.997117+00:00
+2026-01-24 10:14:25,041 | INFO | tripclick-producer | progress sent=62000 topic=tripclick_raw_logs session=w2nyoq450idc0s45sipbkcfw event_ts=2026-01-01T15:49:13.554606+00:00
+2026-01-24 10:14:25,115 | INFO | tripclick-producer | progress sent=63000 topic=tripclick_raw_logs session=uqar2yiguyp0y2flp02khqak event_ts=2026-01-01T15:49:53.093246+00:00
+2026-01-24 10:14:25,186 | INFO | tripclick-producer | progress sent=64000 topic=tripclick_raw_logs session=jnj20fqkngjhjxy3uqngat55 event_ts=2026-01-01T15:50:26.918505+00:00
+2026-01-24 10:14:25,269 | INFO | tripclick-producer | progress sent=65000 topic=tripclick_raw_logs session=44ec3545frmugjj2lwrwy355 event_ts=2026-01-01T15:51:06.292710+00:00
+2026-01-24 10:14:25,341 | INFO | tripclick-producer | progress sent=66000 topic=tripclick_raw_logs session=tltcna45w23ujuzcn0xfc3rk event_ts=2026-01-01T15:51:46.518146+00:00
+2026-01-24 10:14:25,413 | INFO | tripclick-producer | progress sent=67000 topic=tripclick_raw_logs session=peev0c55my3cmbbs0ydiry45 event_ts=2026-01-01T15:52:26.436707+00:00
+2026-01-24 10:14:25,497 | INFO | tripclick-producer | progress sent=68000 topic=tripclick_raw_logs session=2p2ibobcz2zchpiahra4bzf2 event_ts=2026-01-01T15:53:27.308520+00:00
+2026-01-24 10:14:25,570 | INFO | tripclick-producer | progress sent=69000 topic=tripclick_raw_logs session=wqwcki55goc2qaudmyqunci0 event_ts=2026-01-01T15:54:19.465627+00:00
+2026-01-24 10:14:25,655 | INFO | tripclick-producer | progress sent=70000 topic=tripclick_raw_logs session=5hdzbq45r0gcbd55vcl5js45 event_ts=2026-01-01T15:54:53.257812+00:00
+2026-01-24 10:14:25,727 | INFO | tripclick-producer | progress sent=71000 topic=tripclick_raw_logs session=xwi2hbzlobzj5n55ektbri55 event_ts=2026-01-01T15:55:31.786067+00:00
+2026-01-24 10:14:25,811 | INFO | tripclick-producer | progress sent=72000 topic=tripclick_raw_logs session=bghzhmicsymx5255pgrc5q55 event_ts=2026-01-01T15:56:11.773468+00:00
+2026-01-24 10:14:25,896 | INFO | tripclick-producer | progress sent=73000 topic=tripclick_raw_logs session=i2xbj4f1bpy5bl55t3ae0vyt event_ts=2026-01-01T15:57:04.538540+00:00
+2026-01-24 10:14:25,967 | INFO | tripclick-producer | progress sent=74000 topic=tripclick_raw_logs session=ljlehv55ytdiosfe1nhb3x45 event_ts=2026-01-01T15:58:18.056429+00:00
+2026-01-24 10:14:26,040 | INFO | tripclick-producer | progress sent=75000 topic=tripclick_raw_logs session=abuagp55iyy2hyvwfdip3j45 event_ts=2026-01-01T15:59:03.855349+00:00
+2026-01-24 10:14:26,180 | INFO | tripclick-producer | progress sent=76000 topic=tripclick_raw_logs session=josvhq3ypdbr0b45wum5h255 event_ts=2026-01-01T15:59:44.533844+00:00
+2026-01-24 10:14:37,386 | INFO | tripclick-producer | DONE total_sent=76242 file=data/server1/date=2026-01-01/events.json
+2026-01-24 10:14:45,077 | INFO | tripclick-producer | progress sent=5000 topic=tripclick_raw_logs session=zcbvgq553q02gl55pykpmm32 event_ts=2026-01-01T15:05:36.167810+00:00 dedup_key=9e144365
+2026-01-24 10:15:33,148 | INFO | tripclick-producer | progress sent=6000 topic=tripclick_raw_logs session=ruwnrg450tsq2oihfye2cb45 event_ts=2026-01-01T15:06:24.238964+00:00 dedup_key=72217fcf
+2026-01-24 10:16:28,214 | INFO | tripclick-producer | progress sent=7000 topic=tripclick_raw_logs session=ipdbhr45f2migvuvfjyalj45 event_ts=2026-01-01T15:07:19.304287+00:00 dedup_key=85c6b2a4
+2026-01-24 10:17:38,184 | INFO | tripclick-producer | progress sent=8000 topic=tripclick_raw_logs session=2puseh45yllnpu45zwdyhnb0 event_ts=2026-01-01T15:08:29.274311+00:00 dedup_key=59a433bc
+2026-01-24 10:18:32,499 | INFO | tripclick-producer | progress sent=9000 topic=tripclick_raw_logs session=tlxxiq55jj4jrrywhmglgg55 event_ts=2026-01-01T15:09:23.589445+00:00 dedup_key=4ac32e23
+2026-01-24 10:19:15,835 | INFO | tripclick-producer | progress sent=10000 topic=tripclick_raw_logs session=1niwrj45rnbkxu45r3ri2rz5 event_ts=2026-01-01T15:10:06.925836+00:00 dedup_key=e0724751
+2026-01-24 10:20:00,434 | INFO | tripclick-producer | progress sent=11000 topic=tripclick_raw_logs session=mzpis1b35qrw0lrzdyyjawed event_ts=2026-01-01T15:10:51.524482+00:00 dedup_key=014f6057
+2026-01-24 10:20:50,919 | INFO | tripclick-producer | progress sent=12000 topic=tripclick_raw_logs session=3kfvw2550nld5055rzk0gg45 event_ts=2026-01-01T15:11:42.009799+00:00 dedup_key=2ee90795
+2026-01-24 10:22:08,022 | INFO | tripclick-producer | progress sent=13000 topic=tripclick_raw_logs session=rbmr4b55s3gi5055khyxfr45 event_ts=2026-01-01T15:12:59.112485+00:00 dedup_key=bd79fa5f
+2026-01-24 10:22:54,710 | INFO | tripclick-producer | progress sent=14000 topic=tripclick_raw_logs session=c1hkn13vy0kjy255oug1lf45 event_ts=2026-01-01T15:13:45.801039+00:00 dedup_key=db4e8040
+2026-01-24 10:23:28,190 | INFO | tripclick-producer | progress sent=15000 topic=tripclick_raw_logs session=vvlajfanzcha0arz2mdx4055 event_ts=2026-01-01T15:14:19.280949+00:00 dedup_key=e36eea6a
+2026-01-24 10:24:07,895 | INFO | tripclick-producer | progress sent=16000 topic=tripclick_raw_logs session=qb2pj345ybwep545nncza5i5 event_ts=2026-01-01T15:14:58.985666+00:00 dedup_key=68b7f624
+2026-01-24 10:24:39,640 | INFO | tripclick-producer | progress sent=17000 topic=tripclick_raw_logs session=yloqfm33zswvczfylcrzjyyi event_ts=2026-01-01T15:15:30.731088+00:00 dedup_key=b93274aa
+2026-01-24 10:25:44,243 | INFO | tripclick-producer | progress sent=18000 topic=tripclick_raw_logs session=asq1zhzqx5kvag252otiftru event_ts=2026-01-01T15:16:35.334039+00:00 dedup_key=26173e9d
+2026-01-24 10:26:51,215 | INFO | tripclick-producer | progress sent=19000 topic=tripclick_raw_logs session=wfrlcpeoyw5ssouvwqc35l55 event_ts=2026-01-01T15:17:42.305383+00:00 dedup_key=455d001c
+2026-01-24 10:27:34,609 | INFO | tripclick-producer | progress sent=20000 topic=tripclick_raw_logs session=vzu41lbye3bavb3tpxkquaj4 event_ts=2026-01-01T15:18:25.699415+00:00 dedup_key=25e60df5
+2026-01-24 10:28:20,351 | INFO | tripclick-producer | progress sent=21000 topic=tripclick_raw_logs session=vaxdz3roat01zkjqclwr2zfa event_ts=2026-01-01T15:19:11.441235+00:00 dedup_key=46bbf1b0
+2026-01-24 10:29:05,658 | INFO | tripclick-producer | progress sent=22000 topic=tripclick_raw_logs session=1mfrsu3ein5ocan5iixco545 event_ts=2026-01-01T15:19:56.748577+00:00 dedup_key=26a4a088
+2026-01-24 10:30:11,292 | INFO | tripclick-producer | progress sent=23000 topic=tripclick_raw_logs session=ehrp1lvb2bh2nv55nrpm2luo event_ts=2026-01-01T15:21:02.382972+00:00 dedup_key=cc0414a7
+2026-01-24 10:31:31,195 | INFO | tripclick-producer | progress sent=24000 topic=tripclick_raw_logs session=y1d1gfaupkzykk2uhygglbqg event_ts=2026-01-01T15:22:22.286074+00:00 dedup_key=0a20a82d
+2026-01-24 10:32:14,999 | INFO | tripclick-producer | progress sent=25000 topic=tripclick_raw_logs session=jymeemz5jnb53o55vbtpuoya event_ts=2026-01-01T15:23:06.089224+00:00 dedup_key=9ca90461
+2026-01-24 10:32:53,342 | INFO | tripclick-producer | progress sent=26000 topic=tripclick_raw_logs session=zsa3sw45b55ut145ivft0b55 event_ts=2026-01-01T15:23:44.432128+00:00 dedup_key=23ed397c
+2026-01-24 10:33:32,670 | INFO | tripclick-producer | progress sent=27000 topic=tripclick_raw_logs session=cetn3kvyxv1j3s55ympc4d55 event_ts=2026-01-01T15:24:23.761103+00:00 dedup_key=8041e9bb
+2026-01-24 10:34:10,483 | INFO | tripclick-producer | progress sent=28000 topic=tripclick_raw_logs session=mchpqa2iwlsvpl454le1o3bk event_ts=2026-01-01T15:25:01.574032+00:00 dedup_key=bc82b9ce
+2026-01-24 10:35:17,991 | INFO | tripclick-producer | progress sent=29000 topic=tripclick_raw_logs session=ysn4zhafhbsq1o55zsaxhjuh event_ts=2026-01-01T15:26:09.080778+00:00 dedup_key=2a68531f
+2026-01-24 10:36:13,545 | INFO | tripclick-producer | progress sent=30000 topic=tripclick_raw_logs session=cnobefup3opsipimeknhtcz5 event_ts=2026-01-01T15:27:04.635186+00:00 dedup_key=e11beba5
+
