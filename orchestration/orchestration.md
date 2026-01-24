@@ -152,6 +152,9 @@ airflow connections add aws_s3 \
 
 ---
 
+airflow/env/airflow_variables.env 속의 variables 추가하는 작업 필요
+init_airflow_variables.sh 실행필요
+
 ## Docker Compose
 
 ### docker-compose.yaml

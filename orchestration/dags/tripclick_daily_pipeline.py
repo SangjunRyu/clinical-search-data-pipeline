@@ -1,14 +1,15 @@
 """
 TripClick Daily Pipeline DAG
 
-전체 데이터 파이프라인을 오케스트레이션하는 메인 DAG
-- Producer: DockerOperator로 원격 웹서버에서 실행
-- Spark: SparkSubmitOperator로 Spark 클러스터에서 실행
+- Ingestion: Remote Docker Producer
+- Processing: Spark Streaming / Batch
+- Storage: S3 Bronze / Silver / Gold
 """
 
-import os
 from datetime import datetime, timedelta
+
 from airflow import DAG
+from airflow.models import Variable
 from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.operators.empty import EmptyOperator
@@ -30,23 +31,22 @@ DEFAULT_ARGS = {
 
 
 # =========================
-# Common Configuration
+# Airflow Variables
 # =========================
-# 환경변수에서 설정 로드 (실제 값은 Airflow Variables 또는 환경변수로 주입)
-KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "localhost:9092")
-S3_BRONZE_PATH = os.getenv("S3_BRONZE_PATH", "s3a://tripclick-lake/bronze/")
-S3_SILVER_PATH = os.getenv("S3_SILVER_PATH", "s3a://tripclick-lake/silver/")
-S3_GOLD_PATH = os.getenv("S3_GOLD_PATH", "s3a://tripclick-lake/gold/")
+KAFKA_BROKERS = Variable.get("KAFKA_BROKERS")
 
+S3_BRONZE_PATH = Variable.get("S3_BRONZE_PATH")
+S3_SILVER_PATH = Variable.get("S3_SILVER_PATH")
+S3_GOLD_PATH = Variable.get("S3_GOLD_PATH")
+
+WEBSERVER_INGESTION_PATH = Variable.get("WEBSERVER_INGESTION_PATH")
+
+
+# =========================
+# Static Identifiers
+# =========================
 PRODUCER_IMAGE = "tripclick-producer:latest"
 SPARK_CONN_ID = "spark_cluster"
-
-# Docker API 엔드포인트 (환경변수로 주입)
-DOCKER_SERVER0_URL = os.getenv("DOCKER_SERVER0_URL", "tcp://webserver0:2375")
-DOCKER_SERVER1_URL = os.getenv("DOCKER_SERVER1_URL", "tcp://webserver1:2375")
-
-# WebServer 호스트의 ingestion 경로
-WEBSERVER_INGESTION_PATH = "/home/ubuntu/tripclick/ingestion"
 
 
 # =========================
@@ -57,23 +57,20 @@ with DAG(
     description="TripClick 전체 데이터 파이프라인 (Ingestion → Processing → Gold)",
     default_args=DEFAULT_ARGS,
     start_date=datetime(2026, 1, 1),
-    schedule_interval="0 15 * * *",  # 매일 15:00 KST 시작
+    schedule_interval="0 15 * * *",
     catchup=False,
     max_active_runs=1,
     tags=["tripclick", "pipeline", "daily"],
 ) as dag:
 
-    # =========================
-    # Start
-    # =========================
     start = EmptyOperator(task_id="start")
+    end = EmptyOperator(task_id="end")
 
     # =========================
-    # Ingestion Task Group
+    # Ingestion
     # =========================
-    with TaskGroup("ingestion", tooltip="Producer 실행") as ingestion_group:
+    with TaskGroup("ingestion", tooltip="Kafka Producer 실행") as ingestion_group:
 
-        # Producer - Server 0
         producer_server0 = DockerOperator(
             task_id="producer_server0",
             image=PRODUCER_IMAGE,
@@ -82,7 +79,7 @@ with DAG(
                 "--topic", "tripclick_raw_logs",
                 "--mode", "realtime",
             ],
-            docker_url=DOCKER_SERVER0_URL,  # Remote Docker API
+            docker_conn_id="docker_server0",
             network_mode="host",
             environment={
                 "KAFKA_BROKERS": KAFKA_BROKERS,
@@ -102,11 +99,9 @@ with DAG(
                 ),
             ],
             mount_tmp_dir=False,
-            auto_remove=True,
-            force_pull=False,
+            auto_remove="success",
         )
 
-        # Producer - Server 1
         producer_server1 = DockerOperator(
             task_id="producer_server1",
             image=PRODUCER_IMAGE,
@@ -115,7 +110,7 @@ with DAG(
                 "--topic", "tripclick_raw_logs",
                 "--mode", "realtime",
             ],
-            docker_url=DOCKER_SERVER1_URL,  # Remote Docker API
+            docker_conn_id="docker_server1",
             network_mode="host",
             environment={
                 "KAFKA_BROKERS": KAFKA_BROKERS,
@@ -135,27 +130,18 @@ with DAG(
                 ),
             ],
             mount_tmp_dir=False,
-            auto_remove=True,
-            force_pull=False,
+            auto_remove="success",
         )
 
     # =========================
-    # Processing Task Group
+    # Processing
     # =========================
-    with TaskGroup("processing", tooltip="Spark 처리") as processing_group:
+    with TaskGroup("processing", tooltip="Spark Processing") as processing_group:
 
-        # Streaming → Silver (Producer와 동시 실행, 1시간)
         streaming_to_silver = SparkSubmitOperator(
             task_id="streaming_to_silver",
             application="/opt/spark/jobs/streaming_to_silver.py",
-            name="streaming-to-silver",
             conn_id=SPARK_CONN_ID,
-            conf={
-                "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
-                "spark.hadoop.fs.s3a.aws.credentials.provider": (
-                    "com.amazonaws.auth.EnvironmentVariableCredentialsProvider"
-                ),
-            },
             env_vars={
                 "KAFKA_BROKERS": KAFKA_BROKERS,
                 "S3_SILVER_PATH": S3_SILVER_PATH,
@@ -165,18 +151,10 @@ with DAG(
             verbose=True,
         )
 
-        # Batch → Bronze (Streaming 완료 후)
         batch_to_bronze = SparkSubmitOperator(
             task_id="batch_to_bronze",
             application="/opt/spark/jobs/batch_to_bronze.py",
-            name="batch-to-bronze",
             conn_id=SPARK_CONN_ID,
-            conf={
-                "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
-                "spark.hadoop.fs.s3a.aws.credentials.provider": (
-                    "com.amazonaws.auth.EnvironmentVariableCredentialsProvider"
-                ),
-            },
             env_vars={
                 "KAFKA_BROKERS": KAFKA_BROKERS,
                 "S3_BRONZE_PATH": S3_BRONZE_PATH,
@@ -189,22 +167,14 @@ with DAG(
         streaming_to_silver >> batch_to_bronze
 
     # =========================
-    # Gold ETL Task Group
+    # Gold ETL
     # =========================
-    with TaskGroup("gold_etl", tooltip="Gold Mart ETL") as gold_group:
+    with TaskGroup("gold_etl", tooltip="Gold Mart 생성") as gold_group:
 
-        # Silver → Gold (분석 마트 생성)
         etl_to_gold = SparkSubmitOperator(
             task_id="etl_to_gold",
             application="/opt/spark/jobs/etl_to_gold.py",
-            name="etl-to-gold",
             conn_id=SPARK_CONN_ID,
-            conf={
-                "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
-                "spark.hadoop.fs.s3a.aws.credentials.provider": (
-                    "com.amazonaws.auth.EnvironmentVariableCredentialsProvider"
-                ),
-            },
             env_vars={
                 "S3_SILVER_PATH": S3_SILVER_PATH,
                 "S3_GOLD_PATH": S3_GOLD_PATH,
@@ -214,11 +184,9 @@ with DAG(
             verbose=True,
         )
 
-        # Gold → PostgreSQL (Superset용)
         load_to_postgres = SparkSubmitOperator(
             task_id="load_to_postgres",
             application="/opt/spark/jobs/load_to_postgres.py",
-            name="load-to-postgres",
             conn_id=SPARK_CONN_ID,
             env_vars={
                 "S3_GOLD_PATH": S3_GOLD_PATH,
@@ -234,19 +202,12 @@ with DAG(
         etl_to_gold >> load_to_postgres
 
     # =========================
-    # End
+    # Dependencies
     # =========================
-    end = EmptyOperator(task_id="end")
+    start >> ingestion_group
+    start >> streaming_to_silver
 
-    # =========================
-    # Task Dependencies
-    # =========================
-    # Ingestion과 Streaming은 동시 시작
-    start >> [ingestion_group, processing_group.streaming_to_silver]
+    ingestion_group >> batch_to_bronze
+    streaming_to_silver >> batch_to_bronze
 
-    # Streaming 완료 후 Batch
-    ingestion_group >> processing_group.batch_to_bronze
-    processing_group.streaming_to_silver >> processing_group.batch_to_bronze
-
-    # Batch 완료 후 Gold ETL
-    processing_group >> gold_group >> end
+    batch_to_bronze >> gold_group >> end
