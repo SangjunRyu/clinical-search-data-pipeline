@@ -1,24 +1,332 @@
-# TODO: Diagram, 방화벽 구성, 정책, 네트워크, 인스턴스 타입 등 정리예정
+# Infrastructure Specification
+
+TripClick 데이터 파이프라인 인프라 구성 문서
+
+---
+
+## Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              AWS VPC (ap-northeast-2)                           │
+│                                                                                 │
+│  ┌─────────────────────────────────────────────────────────────────────────┐   │
+│  │                         Public Subnet                                    │   │
+│  │                                                                          │   │
+│  │   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                 │   │
+│  │   │  WebServer  │    │  WebServer  │    │   Airflow   │                 │   │
+│  │   │  (server0)  │    │  (server1)  │    │   Server    │                 │   │
+│  │   │  m5.large   │    │  m5.large   │    │  t3.medium  │                 │   │
+│  │   │  :2375 TCP  │    │  :2375 TCP  │    │  :8080 HTTP │                 │   │
+│  │   └──────┬──────┘    └──────┬──────┘    └──────┬──────┘                 │   │
+│  │          │                  │                  │                         │   │
+│  └──────────┼──────────────────┼──────────────────┼─────────────────────────┘   │
+│             │                  │                  │                             │
+│             │   DockerOperator │   DockerOperator │                             │
+│             │   (tcp:2375)     │   (tcp:2375)     │                             │
+│             │                  │                  │                             │
+│  ┌──────────┼──────────────────┼──────────────────┼─────────────────────────┐   │
+│  │          ▼                  ▼                  │      Private Subnet     │   │
+│  │   ┌─────────────────────────────────────┐     │                          │   │
+│  │   │         Kafka Cluster               │     │                          │   │
+│  │   │  ┌─────────┐┌─────────┐┌─────────┐  │     │                          │   │
+│  │   │  │kafka-1  ││kafka-2  ││kafka-3  │  │     │                          │   │
+│  │   │  │t3.small ││t3.small ││t3.small │  │     │                          │   │
+│  │   │  │:9092    ││:9093    ││:9094    │  │     │                          │   │
+│  │   │  └─────────┘└─────────┘└─────────┘  │     │                          │   │
+│  │   └─────────────────────────────────────┘     │                          │   │
+│  │                      │                        │                          │   │
+│  │                      ▼                        │                          │   │
+│  │   ┌─────────────────────────────────────┐     │                          │   │
+│  │   │         Spark Cluster               │     │                          │   │
+│  │   │  ┌─────────┐  ┌─────────────────┐   │     │                          │   │
+│  │   │  │ Master  │  │    Workers      │   │     │                          │   │
+│  │   │  │m5.large │  │ m5.large x 2    │   │     │                          │   │
+│  │   │  │:7077    │  │                 │   │     │                          │   │
+│  │   │  └─────────┘  └─────────────────┘   │     │                          │   │
+│  │   └─────────────────────────────────────┘     │                          │   │
+│  │                      │                        │                          │   │
+│  │                      ▼                        │                          │   │
+│  │   ┌─────────────────────────────────────┐     │                          │   │
+│  │   │    Gold Layer (Data Mart)           │     │                          │   │
+│  │   │  ┌─────────┐  ┌─────────┐           │     │                          │   │
+│  │   │  │PostgreSQL│  │ Superset│           │     │                          │   │
+│  │   │  │t3.small │  │t3.small │           │     │                          │   │
+│  │   │  │:5432    │  │:8088    │           │     │                          │   │
+│  │   │  └─────────┘  └─────────┘           │     │                          │   │
+│  │   └─────────────────────────────────────┘     │                          │   │
+│  │                                               │                          │   │
+│  └───────────────────────────────────────────────┘                          │   │
+│                                                                             │   │
+│                         ┌─────────────────┐                                 │   │
+│                         │    S3 Bucket    │                                 │   │
+│                         │ tripclick-lake  │                                 │   │
+│                         │ /bronze/silver/ │                                 │   │
+│                         │ /gold/          │                                 │   │
+│                         └─────────────────┘                                 │   │
+│                                                                             │   │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
 
 ## EC2 Instance Types
 
-- Kafka Producer (Ingestion)
-  - Instance: m5.large
-  - Reason:
-    - CPU 크레딧 이슈로 인해 t타입 대신 m타입을 이용하였음. 
+대부분의 OS는 **Ubuntu 22.04 LTS**를 사용
 
-- Kafka Broker
-  - Instance: t3.small
-  - Reason:
-    - 브로커 안정성 확보
-    - 디스크 I/O 및 네트워크 고려
+### Ingestion Layer
 
+| 서버 | 인스턴스 | vCPU | Memory | 용도 | 비고 |
+|------|----------|------|--------|------|------|
+| WebServer (server0) | m5.large | 2 | 8GB | Kafka Producer 실행 | CPU 크레딧 이슈로 t타입 대신 m타입 사용 |
+| WebServer (server1) | m5.large | 2 | 8GB | Kafka Producer 실행 | 동일 |
 
-- Spark Server (Processing)
-  - Instance: m5.large
-  - Reason:
-    - 브로커 안정성 확보
-    - 디스크 I/O 및 네트워크 고려
+### Messaging Layer
 
-나머지 BI, 데이터 마트 구성용 서버 및 airflow 서버도 작성예정
+| 서버 | 인스턴스 | vCPU | Memory | 용도 | 비고 |
+|------|----------|------|--------|------|------|
+| Kafka Broker x3 | t3.small | 2 | 2GB | Kafka 메시지 브로커 | 연습용이라 단일 노드에 3개 컨테이너 가능 |
+| Zookeeper | (Kafka와 동일) | - | - | Kafka 코디네이션 | Kafka와 동일 EC2에 배포 |
 
+### Processing Layer
+
+| 서버 | 인스턴스 | vCPU | Memory | 용도 | 비고 |
+|------|----------|------|--------|------|------|
+| Spark Master | m5.large | 2 | 8GB | Spark 클러스터 관리 | SparkSubmit 엔드포인트 |
+| Spark Worker x2 | m5.large | 2 | 8GB | Spark 작업 실행 | Streaming, Batch 처리 |
+
+### Orchestration Layer
+
+| 서버 | 인스턴스 | vCPU | Memory | 용도 | 비고 |
+|------|----------|------|--------|------|------|
+| Airflow Server | t3.medium | 2 | 4GB | DAG 스케줄링, 오케스트레이션 | Webserver, Scheduler, Worker 포함 |
+
+### Gold Layer (Data Mart & BI)
+
+| 서버 | 인스턴스 | vCPU | Memory | 용도 | 비고 |
+|------|----------|------|--------|------|------|
+| PostgreSQL | t3.small | 2 | 2GB | Gold 테이블 저장 | Superset 데이터 소스 |
+| Superset | t3.small | 2 | 2GB | 대시보드, 시각화 | Apache Superset |
+
+### Storage
+
+| 서비스 | 용도 | 비고 |
+|--------|------|------|
+| S3 (tripclick-lake) | 데이터 레이크 | /bronze, /silver, /gold 파티션 |
+
+---
+
+## Network Configuration
+
+### VPC
+
+| 항목 | 값 | 비고 |
+|------|-----|------|
+| VPC CIDR | 10.0.0.0/16 | |
+| Public Subnet | 10.0.1.0/24 | WebServer, Airflow |
+| Private Subnet | 10.0.2.0/24 | Kafka, Spark, PostgreSQL |
+
+### Security Groups
+
+#### sg-webserver (WebServer)
+
+| 방향 | 포트 | 소스 | 용도 |
+|------|------|------|------|
+| Inbound | 22 | My IP | SSH 접속 |
+| Inbound | 2375 | sg-airflow | Remote Docker API |
+| Outbound | 9092-9094 | sg-kafka | Kafka 연결 |
+| Outbound | 443 | 0.0.0.0/0 | HTTPS (AWS API 등) |
+
+#### sg-kafka (Kafka Cluster)
+
+| 방향 | 포트 | 소스 | 용도 |
+|------|------|------|------|
+| Inbound | 22 | My IP | SSH 접속 |
+| Inbound | 2181 | sg-kafka | Zookeeper |
+| Inbound | 9092-9094 | sg-webserver, sg-spark | Kafka Broker |
+| Inbound | 29092-29094 | sg-kafka | Internal Broker 통신 |
+
+#### sg-spark (Spark Cluster)
+
+| 방향 | 포트 | 소스 | 용도 |
+|------|------|------|------|
+| Inbound | 22 | My IP | SSH 접속 |
+| Inbound | 7077 | sg-airflow | Spark Master |
+| Inbound | 8080 | My IP | Spark UI |
+| Inbound | 4040 | My IP | Spark Job UI |
+| Outbound | 9092-9094 | sg-kafka | Kafka 연결 |
+| Outbound | 443 | 0.0.0.0/0 | S3 접근 |
+
+#### sg-airflow (Airflow Server)
+
+| 방향 | 포트 | 소스 | 용도 |
+|------|------|------|------|
+| Inbound | 22 | My IP | SSH 접속 |
+| Inbound | 8080 | My IP | Airflow Web UI |
+| Outbound | 2375 | sg-webserver | Docker API |
+| Outbound | 7077 | sg-spark | Spark Submit |
+
+#### sg-gold (PostgreSQL, Superset)
+
+| 방향 | 포트 | 소스 | 용도 |
+|------|------|------|------|
+| Inbound | 22 | My IP | SSH 접속 |
+| Inbound | 5432 | sg-spark, sg-superset | PostgreSQL |
+| Inbound | 8088 | My IP | Superset Web UI |
+
+---
+
+## Port Summary
+
+| 서비스 | 포트 | 프로토콜 | 용도 |
+|--------|------|----------|------|
+| SSH | 22 | TCP | 원격 접속 |
+| Docker API | 2375 | TCP | Remote Docker (비보안) |
+| Zookeeper | 2181 | TCP | Kafka 코디네이션 |
+| Kafka Broker | 9092-9094 | TCP | 외부 클라이언트 |
+| Kafka Internal | 29092-29094 | TCP | 브로커 간 통신 |
+| Spark Master | 7077 | TCP | 작업 제출 |
+| Spark UI | 8080 | HTTP | 웹 UI |
+| Airflow | 8080 | HTTP | 웹 UI |
+| Superset | 8088 | HTTP | 웹 UI |
+| PostgreSQL | 5432 | TCP | 데이터베이스 |
+
+---
+
+## 테스트 실행 순서
+
+### 1. Kafka 클러스터 시작
+
+```bash
+# Kafka 서버 접속
+ssh -i <key.pem> ubuntu@<KAFKA_SERVER_IP>
+
+# Kafka 디렉터리로 이동
+cd ~/tripclick/messaging
+
+# 환경변수 설정 (외부 접근용 IP)
+export KAFKA_HOST=<KAFKA_PUBLIC_IP>
+
+# Kafka 클러스터 시작
+docker-compose -f kafka-compose.yaml up -d
+
+# 상태 확인
+docker-compose -f kafka-compose.yaml ps
+
+# 토픽 생성
+docker exec kafka-1 kafka-topics --create \
+  --bootstrap-server kafka-1:29092 \
+  --topic tripclick_raw_logs \
+  --partitions 3 \
+  --replication-factor 2
+```
+
+### 2. WebServer에 Producer 배포
+
+```bash
+# WebServer 접속 (server0, server1 각각)
+ssh -i <key.pem> ubuntu@<WEBSERVER_IP>
+
+# 디렉터리 생성
+mkdir -p ~/tripclick
+cd ~/tripclick
+
+# 로컬에서 파일 복사 (또는 git clone)
+# scp -r ingestion/ ubuntu@<IP>:~/tripclick/
+
+# Docker 이미지 빌드
+cd ingestion
+docker build -t tripclick-producer:latest .
+
+# Remote Docker API 활성화
+sudo mkdir -p /etc/systemd/system/docker.service.d
+sudo tee /etc/systemd/system/docker.service.d/override.conf << 'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/bin/dockerd -H fd:// -H tcp://0.0.0.0:2375
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+
+# 확인
+curl http://localhost:2375/version
+```
+
+### 3. Airflow 서버 시작
+
+```bash
+# Airflow 서버 접속
+ssh -i <key.pem> ubuntu@<AIRFLOW_SERVER_IP>
+
+# 디렉터리 이동
+cd ~/tripclick/orchestration
+
+# 필수 디렉터리 생성
+mkdir -p logs plugins config
+
+# AIRFLOW_UID 설정
+echo "AIRFLOW_UID=$(id -u)" > .env
+
+# Airflow 시작
+docker-compose up -d
+
+# 초기화 완료 대기 (약 1-2분)
+docker-compose logs -f airflow-init
+
+# 상태 확인
+docker-compose ps
+
+# 웹 UI 접속: http://<AIRFLOW_IP>:8080 (admin/admin)
+```
+
+### 4. Airflow Connection 설정
+
+```bash
+# Airflow CLI 컨테이너 접속
+docker-compose exec airflow-webserver bash
+
+# Docker Connection 추가 (server0)
+airflow connections add docker_server0 \
+  --conn-type docker \
+  --conn-host tcp://<WEBSERVER0_IP>:2375
+
+# Docker Connection 추가 (server1)
+airflow connections add docker_server1 \
+  --conn-type docker \
+  --conn-host tcp://<WEBSERVER1_IP>:2375
+
+# Spark Connection 추가
+airflow connections add spark_cluster \
+  --conn-type spark \
+  --conn-host spark://<SPARK_MASTER_IP>:7077
+
+# 환경변수 설정 (Variables)
+airflow variables set kafka_brokers "<KAFKA_IP>:9092,<KAFKA_IP>:9093,<KAFKA_IP>:9094"
+airflow variables set docker_server0_url "tcp://<WEBSERVER0_IP>:2375"
+airflow variables set docker_server1_url "tcp://<WEBSERVER1_IP>:2375"
+```
+
+### 5. DAG 활성화 및 테스트
+
+```bash
+# Airflow Web UI에서:
+# 1. tripclick_daily_pipeline DAG 찾기
+# 2. Toggle로 활성화
+# 3. Trigger DAG (수동 실행)
+
+# 또는 CLI로:
+airflow dags unpause tripclick_daily_pipeline
+airflow dags trigger tripclick_daily_pipeline
+```
+
+---
+
+## TODO
+
+- [x] EC2 Instance Types 정리
+- [x] Network/Security Group 구성
+- [x] 테스트 실행 순서 정리
+- [ ] Terraform/CloudFormation 템플릿 작성
+- [ ] 비용 추정 (월간)
+- [ ] 백업/복구 전략

@@ -1,0 +1,107 @@
+# ==============================================
+# TripClick Producer - Local Test & WebServer Deployment
+# ==============================================
+#
+# 이 파일은 두 가지 용도로 사용:
+# 1. 로컬 개발/테스트 환경
+# 2. 웹서버 노드(server0, server1)에 배포 후 Airflow DockerOperator로 실행
+#
+# 웹서버 노드 배포:
+#   1. 이 디렉터리를 웹서버에 복사
+#   2. docker-compose build 로 이미지 빌드
+#   3. Airflow에서 DockerOperator로 tripclick-producer:latest 실행
+#
+# ==============================================
+
+version: "3.8"
+
+services:
+  # ============================================
+  # Producer 이미지 빌드용 서비스
+  # ============================================
+  producer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tripclick-producer:latest
+    container_name: tripclick-producer
+
+    # 볼륨 마운트
+    volumes:
+      # 데이터 디렉터리 (웹서버의 실제 로그 위치로 변경)
+      - ./data:/app/data:ro
+      # 설정 파일
+      - ./config:/app/config:ro
+      # 로그 출력
+      - ./logs:/app/logs
+
+    # 환경변수
+    environment:
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
+      - PYTHONUNBUFFERED=1
+
+    # 네트워크 (Kafka와 통신)
+    networks:
+      - tripclick-network
+
+    # 기본 명령어 (override 가능)
+    command:
+      - --file
+      - /app/data/server0/date=2026-01-01/events.json
+      - --topic
+      - tripclick_raw_logs
+      - --mode
+      - realtime
+
+  # ============================================
+  # Server0 Producer (Airflow에서 호출 시 참고용)
+  # ============================================
+  producer-server0:
+    image: tripclick-producer:latest
+    container_name: tripclick-producer-server0
+    volumes:
+      - ./data:/app/data:ro
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+    environment:
+      - KAFKA_BROKERS=${KAFKA_BROKERS}
+    networks:
+      - tripclick-network
+    profiles:
+      - server0
+    command:
+      - --file
+      - /app/data/server0/date=${TARGET_DATE:-2026-01-01}/events.json
+      - --topic
+      - tripclick_raw_logs
+      - --mode
+      - realtime
+
+  # ============================================
+  # Server1 Producer (Airflow에서 호출 시 참고용)
+  # ============================================
+  producer-server1:
+    image: tripclick-producer:latest
+    container_name: tripclick-producer-server1
+    volumes:
+      - ./data:/app/data:ro
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+    environment:
+      - KAFKA_BROKERS=${KAFKA_BROKERS}
+    networks:
+      - tripclick-network
+    profiles:
+      - server1
+    command:
+      - --file
+      - /app/data/server1/date=${TARGET_DATE:-2026-01-01}/events.json
+      - --topic
+      - tripclick_raw_logs
+      - --mode
+      - realtime
+
+networks:
+  tripclick-network:
+    external: true
+    name: ${NETWORK_NAME:-tripclick-network}

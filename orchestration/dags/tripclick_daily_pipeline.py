@@ -13,6 +13,7 @@ from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.operators.empty import EmptyOperator
 from airflow.utils.task_group import TaskGroup
+from docker.types import Mount
 
 
 # =========================
@@ -44,6 +45,9 @@ SPARK_CONN_ID = "spark_cluster"
 DOCKER_SERVER0_URL = os.getenv("DOCKER_SERVER0_URL", "tcp://webserver0:2375")
 DOCKER_SERVER1_URL = os.getenv("DOCKER_SERVER1_URL", "tcp://webserver1:2375")
 
+# WebServer 호스트의 ingestion 경로
+WEBSERVER_INGESTION_PATH = "/home/ubuntu/tripclick/ingestion"
+
 
 # =========================
 # DAG Definition
@@ -73,17 +77,30 @@ with DAG(
         producer_server0 = DockerOperator(
             task_id="producer_server0",
             image=PRODUCER_IMAGE,
-            command=(
-                "python producer/producer.py "
-                "--file /data/server0/date={{ ds }}/events.json "
-                "--topic tripclick_raw_logs "
-                "--mode realtime"
-            ),
+            command=[
+                "--file", "/app/data/server0/date={{ ds }}/events.json",
+                "--topic", "tripclick_raw_logs",
+                "--mode", "realtime",
+            ],
             docker_url=DOCKER_SERVER0_URL,  # Remote Docker API
             network_mode="host",
             environment={
                 "KAFKA_BROKERS": KAFKA_BROKERS,
             },
+            mounts=[
+                Mount(
+                    source=f"{WEBSERVER_INGESTION_PATH}/data",
+                    target="/app/data",
+                    type="bind",
+                    read_only=True,
+                ),
+                Mount(
+                    source=f"{WEBSERVER_INGESTION_PATH}/config",
+                    target="/app/config",
+                    type="bind",
+                    read_only=True,
+                ),
+            ],
             mount_tmp_dir=False,
             auto_remove=True,
             force_pull=False,
@@ -93,17 +110,30 @@ with DAG(
         producer_server1 = DockerOperator(
             task_id="producer_server1",
             image=PRODUCER_IMAGE,
-            command=(
-                "python producer/producer.py "
-                "--file /data/server1/date={{ ds }}/events.json "
-                "--topic tripclick_raw_logs "
-                "--mode realtime"
-            ),
+            command=[
+                "--file", "/app/data/server1/date={{ ds }}/events.json",
+                "--topic", "tripclick_raw_logs",
+                "--mode", "realtime",
+            ],
             docker_url=DOCKER_SERVER1_URL,  # Remote Docker API
             network_mode="host",
             environment={
                 "KAFKA_BROKERS": KAFKA_BROKERS,
             },
+            mounts=[
+                Mount(
+                    source=f"{WEBSERVER_INGESTION_PATH}/data",
+                    target="/app/data",
+                    type="bind",
+                    read_only=True,
+                ),
+                Mount(
+                    source=f"{WEBSERVER_INGESTION_PATH}/config",
+                    target="/app/config",
+                    type="bind",
+                    read_only=True,
+                ),
+            ],
             mount_tmp_dir=False,
             auto_remove=True,
             force_pull=False,

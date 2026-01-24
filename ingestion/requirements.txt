@@ -1,0 +1,12 @@
+# ==============================================
+# TripClick Producer Dependencies
+# ==============================================
+
+# Kafka client
+kafka-python>=2.0.2
+
+# Configuration
+PyYAML>=6.0
+
+# Fast hashing for dedup key (optional, falls back to md5)
+xxhash>=3.0.0
