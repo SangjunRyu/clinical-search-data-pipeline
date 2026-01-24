@@ -82,14 +82,14 @@ ingestion/
 cd ingestion
 
 # 실시간 모드 (기본)
-python producer/producer.py \
+python3 -m producer.producer \
   --file data/server0/date=2026-01-01/events.json \
   --topic tripclick_raw_logs \
   --mode realtime
 
 # 배치 모드
-python producer/producer.py \
-  --file data/server0/date=2026-01-01/events.json \
+python3 -m producer.producer \
+  --file data/server1/date=2026-01-01/events.json \
   --topic tripclick_raw_logs \
   --mode batch
 ```
@@ -195,19 +195,14 @@ scp -r ingestion/ ubuntu@<WEBSERVER1_IP>:/home/ubuntu/tripclick/
 
 각 웹서버에서 Docker API를 외부에서 접근 가능하도록 설정:
 
-```bash
-# /etc/docker/daemon.json
-{
-  "hosts": ["unix:///var/run/docker.sock", "tcp://0.0.0.0:2375"]
-}
+# systemd override 사용
+cd /lib/systemd/system
+sudo vi docker.service
 
-# 또는 systemd override 사용
-sudo mkdir -p /etc/systemd/system/docker.service.d
-sudo cat > /etc/systemd/system/docker.service.d/override.conf << 'EOF'
+-- 설정 변경
 [Service]
-ExecStart=
-ExecStart=/usr/bin/dockerd -H fd:// -H tcp://0.0.0.0:2375
-EOF
+ExecStart=/usr/bin/dockerd -H fd:// -H tcp://airflow_serverip:2375
+
 
 # Docker 재시작
 sudo systemctl daemon-reload

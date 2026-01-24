@@ -46,7 +46,7 @@ ENV KAFKA_BROKERS=""
 ENV PYTHONUNBUFFERED=1
 
 # 엔트리포인트 설정
-ENTRYPOINT ["python", "producer/producer.py"]
+ENTRYPOINT ["python", "-m", "producer.producer"]
 
 # 기본 인자 (override 가능)
 CMD ["--help"]
