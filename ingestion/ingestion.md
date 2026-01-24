@@ -1,3 +1,26 @@
+### 수정사항 존재.
+
+docker run --rm \
+  -v $(pwd)/data:/app/data:ro \
+  -v $(pwd)/config:/app/config:ro \
+  -v $(pwd)/logs:/app/logs \
+  -v /home/ubuntu/server0:/app/data/server0:ro \
+  tripclick-producer:latest \
+  --file /app/data/server0/date=2026-01-02/events.json \
+  --mode batch
+
+로 실행할 수 있도록 수정하였음. 
+
+Dockerfile에서 data를 마운트 하는 부분제거함
+COPY config/config.yaml ./config/config.yaml 이 부분 놔두어서 kafka 내용은 옵션으로 주지 않아도 자동으로
+3개의 브로커에 분산분배되도록 구성하였음.
+
+producer 로직을 base, batch, realtime으로 나누고,
+그냥 --mode batch로 실행, 딱히 entrypoint.sh은 사용하지 않을 예정.
+이에 맞게 airflow dags도 --mode 옵션에 batch를 주냐, realtime을 주냐로 수정할 예정임.
+
+ingestion 서버의 docker-compose.yaml에 대한 내용 설명좀 해주고 필요한건지도 검토예정.
+
 # Ingestion Layer
 
 원천 데이터를 수집하여 Kafka 브로커에 전달하는 레이어
@@ -19,9 +42,13 @@
 ingestion/
 ├── Dockerfile               # Producer Docker 이미지
 ├── docker-compose.yaml      # 로컬 테스트 및 웹서버 배포용
+├── entrypoint.sh            # Docker 엔트리포인트 (모드 선택)
 ├── requirements.txt         # Python 의존성
 ├── producer/
-│   └── producer.py          # Kafka Producer 메인 코드
+│   ├── producer_base.py     # 공통 유틸리티 (config, dedup, kafka)
+│   ├── producer_realtime.py # 실시간 스트리밍 Producer
+│   ├── producer_batch.py    # 배치 전송 Producer
+│   └── producer.py          # (deprecated) 기존 통합 코드
 ├── config/
 │   ├── config.yaml          # Kafka 브로커 설정 (Git 제외)
 │   └── config.yaml.example  # 설정 예시
@@ -67,31 +94,37 @@ ingestion/
 
 ---
 
-## producer.py
+## Producer 구조
+
+### 파일 구성
+
+| 파일 | 설명 |
+|------|------|
+| `producer_base.py` | 공통 유틸리티 (config loader, dedup key, kafka producer) |
+| `producer_realtime.py` | 실시간 스트리밍 전송 |
+| `producer_batch.py` | 배치 전송 (고속 처리) |
 
 ### 전송 모드
 
-| 모드 | 설명 | 사용 시점 |
-|------|------|----------|
-| `realtime` | timestamp 기반 실시간 전송 | 스트리밍 시뮬레이션 |
-| `batch` | 즉시 전체 전송 | 초기 적재, 테스트 |
+| 모드 | 파일 | 설명 | 사용 시점 |
+|------|------|------|----------|
+| `realtime` | `producer_realtime.py` | event_ts 기준 시간 경과에 따라 전송 | 스트리밍 시뮬레이션 |
+| `batch` | `producer_batch.py` | 대기 없이 즉시 전송 | 초기 적재, 백필 |
 
 ### 실행 방법
 
 ```bash
 cd ingestion
 
-# 실시간 모드 (기본)
-python3 -m producer.producer \
+# 실시간 모드
+python3 -m producer.producer_realtime \
   --file data/server0/date=2026-01-01/events.json \
-  --topic tripclick_raw_logs \
-  --mode realtime
+  --topic tripclick_raw_logs
 
 # 배치 모드
-python3 -m producer.producer \
+python3 -m producer.producer_batch \
   --file data/server1/date=2026-01-01/events.json \
-  --topic tripclick_raw_logs \
-  --mode batch
+  --topic tripclick_raw_logs
 ```
 
 ### 주요 기능
@@ -167,9 +200,20 @@ docker run --rm \
   -v $(pwd)/config:/app/config:ro \
   -e KAFKA_BROKERS=$KAFKA_BROKERS \
   tripclick-producer:latest \
+  realtime \
   --file /app/data/server0/date=2026-01-01/events.json \
-  --topic tripclick_raw_logs \
-  --mode realtime
+  --topic tripclick_raw_logs
+
+# 실행 (batch 모드)
+docker run --rm \
+  --network tripclick-network \
+  -v $(pwd)/data:/app/data:ro \
+  -v $(pwd)/config:/app/config:ro \
+  -e KAFKA_BROKERS=$KAFKA_BROKERS \
+  tripclick-producer:latest \
+  batch \
+  --file /app/data/server0/date=2026-01-01/events.json \
+  --topic tripclick_raw_logs
 
 # 또는 docker-compose 사용
 docker-compose up producer
@@ -255,58 +299,65 @@ airflow connections add docker_server1 \
   --conn-host tcp://<WEBSERVER1_IP>:2375
 ```
 
+### DAG 구성
+
+Airflow DAG는 두 가지로 분리되어 있습니다:
+
+| DAG ID | 파일 | 모드 | 용도 |
+|--------|------|------|------|
+| `tripclick_producer_realtime` | `tripclick_producer_realtime_dag.py` | realtime | 스트리밍 시뮬레이션 |
+| `tripclick_producer_batch` | `tripclick_producer_batch_dag.py` | batch | 백필/일괄 적재 |
+
 ### DAG에서 DockerOperator 사용
 
 ```python
 from airflow.providers.docker.operators.docker import DockerOperator
+from docker.types import Mount
 
-# Server0 Producer
-producer_server0 = DockerOperator(
-    task_id="producer_server0",
+# Batch 모드 Producer (과거 데이터 백필)
+producer_server0_batch = DockerOperator(
+    task_id="producer_server0_batch",
     image="tripclick-producer:latest",
-    api_version="auto",
-    docker_url="tcp://<WEBSERVER0_IP>:2375",  # Remote Docker API
-    network_mode="tripclick-network",
+    docker_conn_id="docker_server0",
+    network_mode="host",
 
     # 볼륨 마운트 (호스트 경로 → 컨테이너 경로)
     mounts=[
-        {
-            "source": "/home/ubuntu/tripclick/ingestion/data",
-            "target": "/app/data",
-            "type": "bind",
-            "read_only": True,
-        },
-        {
-            "source": "/home/ubuntu/tripclick/ingestion/config",
-            "target": "/app/config",
-            "type": "bind",
-            "read_only": True,
-        },
+        Mount(
+            source="/home/ubuntu/server0",
+            target="/app/data",
+            type="bind",
+            read_only=True,
+        ),
+        Mount(
+            source="/home/ubuntu/ingestion/config",
+            target="/app/config",
+            type="bind",
+            read_only=True,
+        ),
     ],
 
     # 환경변수
     environment={
-        "KAFKA_BROKERS": "{{ var.value.kafka_brokers }}",
+        "KAFKA_BROKERS": "{{ var.value.KAFKA_BROKERS }}",
     },
 
-    # 명령어 인자
+    # 명령어 인자 (batch 모드)
     command=[
-        "--file", "/app/data/server0/date={{ ds }}/events.json",
+        "--file", "/app/data/date={{ ds }}/events.json",
         "--topic", "tripclick_raw_logs",
-        "--mode", "realtime",
+        "--mode", "batch",
     ],
 
     # 컨테이너 설정
-    auto_remove=True,
+    auto_remove="success",
     mount_tmp_dir=False,
 )
 
-# Server1 Producer (동일 패턴)
-producer_server1 = DockerOperator(
-    task_id="producer_server1",
-    image="tripclick-producer:latest",
-    docker_url="tcp://<WEBSERVER1_IP>:2375",
-    # ... (server1 경로로 변경)
+# Realtime 모드 Producer (스트리밍 테스트)
+producer_server0_realtime = DockerOperator(
+    task_id="producer_server0_realtime",
+    # ... 동일, --mode realtime으로 변경
 )
 ```
 
