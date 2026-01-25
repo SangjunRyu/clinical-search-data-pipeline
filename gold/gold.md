@@ -1,3 +1,13 @@
+# 현재 진행한 내용들
+
+t3.small,  8gb ebs로 서버 띄움
+
+여기에 superset과 pgsql 설치할 예정
+
+
+
+
+
 # Gold Layer
 
 분석용 데이터 마트 및 시각화 레이어

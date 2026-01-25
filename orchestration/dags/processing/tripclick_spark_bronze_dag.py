@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.models import Variable
+from airflow.hooks.base import BaseHook
 from airflow.providers.ssh.operators.ssh import SSHOperator
 from airflow.operators.empty import EmptyOperator
 
@@ -30,12 +31,15 @@ DEFAULT_ARGS = {
 
 
 # =========================
-# Airflow Variables
+# Airflow Variables & Connections
 # =========================
 KAFKA_BROKERS = Variable.get("KAFKA_BROKERS")
 S3_BRONZE_PATH = Variable.get("S3_BRONZE_PATH")
-AWS_ACCESS_KEY = Variable.get("AWS_ACCESS_KEY_ID")
-AWS_SECRET_KEY = Variable.get("AWS_SECRET_ACCESS_KEY")
+
+# AWS 자격증명은 Connection에서 가져오기
+aws_conn = BaseHook.get_connection("aws_s3")
+AWS_ACCESS_KEY = aws_conn.login
+AWS_SECRET_KEY = aws_conn.password
 
 
 # =========================
