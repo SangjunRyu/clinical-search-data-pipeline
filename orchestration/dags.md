@@ -84,8 +84,13 @@ start → producer_server0_batch → end
 |------|-----|
 | DAG ID | `tripclick_streaming_silver` |
 | 스케줄 | `None` (수동 실행) |
-| Operator | `SparkSubmitOperator` |
+| Operator | `SSHOperator` |
 | 목적 | Kafka → Silver 스트리밍 처리 |
+
+**특징:**
+- SSHOperator로 Spark 서버에서 직접 spark-submit 실행
+- 네트워크 문제 없이 안정적인 실행 보장
+- 1시간 동안 실시간 데이터 처리 후 종료
 
 **Task Flow:**
 ```
@@ -94,7 +99,7 @@ start → streaming_to_silver → end
 
 **필요 설정:**
 - Airflow Variables: `KAFKA_BROKERS`, `S3_SILVER_PATH`
-- Airflow Connections: `spark_cluster`, `aws_s3`
+- Airflow Connections: `spark_ssh`, `aws_s3`
 
 
 ### 3. Processing: `tripclick_batch_dag.py` ✅
@@ -103,8 +108,12 @@ start → streaming_to_silver → end
 |------|-----|
 | DAG ID | `tripclick_batch_bronze` |
 | 스케줄 | `None` (수동 실행) |
-| Operator | `SparkSubmitOperator` |
+| Operator | `SSHOperator` |
 | 목적 | Kafka → Bronze 배치 처리 |
+
+**특징:**
+- SSHOperator로 Spark 서버에서 직접 spark-submit 실행
+- 전체 Kafka 데이터를 배치로 적재
 
 **Task Flow:**
 ```
@@ -113,7 +122,7 @@ start → batch_to_bronze → end
 
 **필요 설정:**
 - Airflow Variables: `KAFKA_BROKERS`, `S3_BRONZE_PATH`
-- Airflow Connections: `spark_cluster`, `aws_s3`
+- Airflow Connections: `spark_ssh`, `aws_s3`
 
 
 ### 4. Mart: `tripclick_gold_dag.py` ✅
@@ -122,8 +131,12 @@ start → batch_to_bronze → end
 |------|-----|
 | DAG ID | `tripclick_gold_etl` |
 | 스케줄 | `None` (수동 실행) |
-| Operator | `SparkSubmitOperator` |
-| 목적 | Silver → Gold 집계 처리 |
+| Operator | `SSHOperator` |
+| 목적 | Silver → Gold 집계 처리 → PostgreSQL 적재 |
+
+**특징:**
+- SSHOperator로 Spark 서버에서 직접 spark-submit 실행
+- Silver 데이터를 집계하여 PostgreSQL 마트 테이블로 적재
 
 **Task Flow:**
 ```
@@ -131,8 +144,8 @@ start → etl_to_gold → end
 ```
 
 **필요 설정:**
-- Airflow Variables: `S3_SILVER_PATH`, `S3_GOLD_PATH`
-- Airflow Connections: `spark_cluster`, `aws_s3`
+- Airflow Variables: `S3_SILVER_PATH`
+- Airflow Connections: `spark_ssh`, `aws_s3`, `postgres_gold`
 
 
 ### 5. Mart: `tripclick_load_postgres.py` ✅
@@ -141,8 +154,12 @@ start → etl_to_gold → end
 |------|-----|
 | DAG ID | `tripclick_load_postgres` |
 | 스케줄 | `None` (수동 실행) |
-| Operator | `SparkSubmitOperator` |
-| 목적 | Gold → PostgreSQL 적재 |
+| Operator | `SSHOperator` |
+| 목적 | Silver → PostgreSQL 마트 테이블 적재 |
+
+**특징:**
+- SSHOperator로 Spark 서버에서 직접 spark-submit 실행
+- 4개 마트 테이블 적재 (세션, 트래픽, 임상분야, 인기문서)
 
 **Task Flow:**
 ```
@@ -150,8 +167,8 @@ start → load_to_postgres → end
 ```
 
 **필요 설정:**
-- Airflow Variables: `S3_GOLD_PATH`
-- Airflow Connections: `spark_cluster`, `postgres_gold`
+- Airflow Variables: `S3_SILVER_PATH`
+- Airflow Connections: `spark_ssh`, `postgres_gold`
 
 
 ### 6. Pipeline: `tripclick_main_dag.py` ✅
@@ -214,7 +231,7 @@ trigger_producer >> trigger_streaming >> ...
 | Conn ID | Type | 설명 |
 |---------|------|------|
 | `docker_server0` | Docker | 웹서버 0 Docker Remote API (`tcp://10.0.0.43:2375`) |
-| `spark_cluster` | Spark | Spark Master (`spark://10.0.2.x:7077`) |
+| `spark_ssh` | SSH | Spark 서버 SSH 연결 (SSHOperator용) |
 | `aws_s3` | Amazon Web Services | S3 접근용 IAM 자격증명 |
 | `postgres_gold` | Postgres | Gold 레이어 PostgreSQL |
 
@@ -240,10 +257,12 @@ trigger_producer >> trigger_streaming >> ...
 
 | DAG | 상태 | 비고 |
 |-----|------|------|
-| `tripclick_producer_realtime` | ✅ 완료 | `ingestion/tripclick_producer_realtime_dag.py` |
-| `tripclick_producer_batch` | ✅ 완료 | `ingestion/tripclick_producer_batch_dag.py` |
-| `tripclick_streaming_silver` | ✅ 완료 | `processing/tripclick_streaming_dag.py` |
-| `tripclick_batch_bronze` | ✅ 완료 | `processing/tripclick_batch_dag.py` |
-| `tripclick_gold_etl` | ✅ 완료 | `mart/tripclick_gold_dag.py` |
-| `tripclick_load_postgres` | ✅ 완료 | `mart/tripclick_load_postgres.py` |
-| `tripclick_daily_pipeline` | ✅ 완료 | `pipeline/tripclick_main_dag.py` (TriggerDagRunOperator 사용) |
+| `tripclick_producer_realtime` | ✅ 완료 | `ingestion/tripclick_producer_realtime_dag.py` (DockerOperator) |
+| `tripclick_producer_batch` | ✅ 완료 | `ingestion/tripclick_producer_batch_dag.py` (DockerOperator) |
+| `tripclick_streaming_silver` | ✅ 완료 | `processing/tripclick_streaming_dag.py` (SSHOperator) |
+| `tripclick_batch_bronze` | ✅ 완료 | `processing/tripclick_batch_dag.py` (SSHOperator) |
+| `tripclick_gold_etl` | ✅ 완료 | `mart/tripclick_gold_dag.py` (SSHOperator) |
+| `tripclick_load_postgres` | ✅ 완료 | `mart/tripclick_load_postgres.py` (SSHOperator) |
+| `tripclick_daily_pipeline` | ✅ 완료 | `pipeline/tripclick_main_dag.py` (TriggerDagRunOperator) |
+
+> **Note**: SparkSubmitOperator의 Client Mode 네트워크 문제로 인해 Spark 관련 DAG들은 모두 SSHOperator로 구현했습니다.

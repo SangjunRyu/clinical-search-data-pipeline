@@ -16,10 +16,12 @@ t3.small,  8gb ebs로 서버 띄움
 
 | 항목 | 내용 |
 |------|------|
-| 입력 | S3 Silver Layer |
-| 출력 | S3 Gold / PostgreSQL |
+| 입력 | S3 Silver Layer (Parquet) |
+| 출력 | PostgreSQL (마트 테이블) |
 | 시각화 | Apache Superset |
 | 목적 | 비즈니스 분석 및 대시보드 |
+
+> **Note**: Gold 레이어는 S3가 아닌 PostgreSQL 테이블로 직접 적재합니다. BI 도구(Superset) 연동 및 실시간 쿼리 성능을 위해 RDB를 선택했습니다.
 
 ---
 
@@ -31,23 +33,26 @@ t3.small,  8gb ebs로 서버 띄움
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌─────────────┐     ┌──────────────────────────────────────┐  │
-│  │  S3 Silver  │────▶│  Spark ETL                           │  │
+│  │  S3 Silver  │────▶│  Spark ETL (via SSHOperator)         │  │
 │  │  (Parquet)  │     │  - 집계/변환                         │  │
 │  └─────────────┘     │  - 마트 테이블 생성                  │  │
 │                      └──────────────────────────────────────┘  │
 │                                   │                             │
-│                      ┌────────────┴────────────┐               │
-│                      ▼                         ▼               │
-│              ┌─────────────┐           ┌─────────────┐         │
-│              │  S3 Gold    │           │  PostgreSQL │         │
-│              │  (Parquet)  │           │  (RDB)      │         │
-│              └─────────────┘           └──────┬──────┘         │
-│                                               │                 │
-│                                               ▼                 │
-│                                       ┌─────────────┐          │
-│                                       │  Superset   │          │
-│                                       │  Dashboard  │          │
-│                                       └─────────────┘          │
+│                                   ▼                             │
+│                           ┌─────────────┐                       │
+│                           │  PostgreSQL │                       │
+│                           │  (Gold Mart)│                       │
+│                           │  - session  │                       │
+│                           │  - traffic  │                       │
+│                           │  - clinical │                       │
+│                           │  - popular  │                       │
+│                           └──────┬──────┘                       │
+│                                  │                              │
+│                                  ▼                              │
+│                          ┌─────────────┐                        │
+│                          │  Superset   │                        │
+│                          │  Dashboard  │                        │
+│                          └─────────────┘                        │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -59,19 +64,17 @@ t3.small,  8gb ebs로 서버 띄움
 ```
 gold/
 ├── gold.md                   # 이 문서
-├── spark/
-│   └── jobs/
-│       ├── etl_to_gold.py          # Silver → Gold 변환
-│       └── load_to_postgres.py     # Gold → PostgreSQL 적재
+├── docker-compose.yaml       # PostgreSQL + Superset 통합 구성
 ├── postgres/
-│   ├── docker-compose.yaml         # PostgreSQL 서버
 │   └── init/
 │       └── 01_create_tables.sql    # 테이블 초기화
-├── superset/
-│   ├── docker-compose.yaml         # Superset 서버
-│   └── superset_config.py          # Superset 설정
-└── config/
-    └── config.yaml                 # 공통 설정
+└── superset/
+    └── superset_config.py          # Superset 설정
+
+# ETL 코드는 processing 레이어에 위치 (Spark 서버에서 SSHOperator로 실행)
+processing/spark/jobs/
+├── etl_to_gold.py          # Silver → PostgreSQL 마트 적재
+└── load_to_postgres.py     # Silver → PostgreSQL 마트 적재 (대안)
 ```
 
 ---
@@ -131,9 +134,11 @@ gold/
 
 ## Spark ETL Jobs
 
+Airflow SSHOperator를 통해 Spark 서버에서 직접 실행됩니다.
+
 ### etl_to_gold.py
 
-Silver 데이터를 Gold 마트로 변환
+Silver 데이터를 집계하여 PostgreSQL 마트 테이블로 적재
 
 ```python
 # 주요 변환 로직
@@ -163,7 +168,7 @@ daily_mart = (
 
 ### load_to_postgres.py
 
-Gold 마트를 PostgreSQL에 적재
+Silver 데이터를 PostgreSQL 마트 테이블에 적재 (JDBC)
 
 ```python
 # JDBC를 통한 PostgreSQL 적재
@@ -185,27 +190,25 @@ Gold 마트를 PostgreSQL에 적재
 
 ## PostgreSQL 설정
 
-### docker-compose.yaml
+PostgreSQL과 Superset은 `gold/docker-compose.yaml`에 통합 구성되어 있습니다.
+
+### PostgreSQL 서비스
 
 ```yaml
-version: "3.8"
-
-services:
-  postgres-gold:
-    image: postgres:15
-    container_name: postgres-gold
-    environment:
-      POSTGRES_USER: gold
-      POSTGRES_PASSWORD: gold_password
-      POSTGRES_DB: tripclick_gold
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres-gold-data:/var/lib/postgresql/data
-      - ./init:/docker-entrypoint-initdb.d
-
-volumes:
-  postgres-gold-data:
+postgres-gold:
+  image: postgres:15
+  container_name: postgres-gold
+  environment:
+    POSTGRES_USER: gold
+    POSTGRES_PASSWORD: gold_password
+    POSTGRES_DB: tripclick_gold
+  ports:
+    - "5433:5432"
+  volumes:
+    - postgres-gold-data:/var/lib/postgresql/data
+    - ./postgres/init:/docker-entrypoint-initdb.d
+  networks:
+    - gold-network
 ```
 
 ### 테이블 초기화 (01_create_tables.sql)
@@ -261,46 +264,23 @@ CREATE INDEX idx_popular_date ON mart_popular_documents(event_date);
 
 ## Apache Superset 설정
 
-### docker-compose.yaml
+Superset은 `gold/docker-compose.yaml`에 통합 구성되어 있으며, `gold-network`를 통해 postgres-gold와 연결됩니다.
+
+### Superset 서비스
 
 ```yaml
-version: "3.8"
-
-services:
-  superset:
-    image: apache/superset:3.1.0
-    container_name: superset
-    ports:
-      - "8088:8088"
-    environment:
-      SUPERSET_SECRET_KEY: "your-secret-key"
-      SUPERSET_LOAD_EXAMPLES: "false"
-    volumes:
-      - ./superset_config.py:/app/pythonpath/superset_config.py
-      - superset-data:/app/superset_home
-    depends_on:
-      - superset-db
-    command: >
-      bash -c "
-        superset db upgrade &&
-        superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin &&
-        superset init &&
-        superset run -h 0.0.0.0 -p 8088
-      "
-
-  superset-db:
-    image: postgres:15
-    container_name: superset-db
-    environment:
-      POSTGRES_USER: superset
-      POSTGRES_PASSWORD: superset
-      POSTGRES_DB: superset
-    volumes:
-      - superset-db-data:/var/lib/postgresql/data
-
-volumes:
-  superset-data:
-  superset-db-data:
+superset:
+  image: apache/superset:3.1.0
+  container_name: superset
+  ports:
+    - "8088:8088"
+  volumes:
+    - ./superset/superset_config.py:/app/pythonpath/superset_config.py
+  depends_on:
+    - superset-db
+    - postgres-gold
+  networks:
+    - gold-network
 ```
 
 ### Superset Database 연결
@@ -346,17 +326,15 @@ Password: gold_password
 ```bash
 cd gold
 
-# 1. PostgreSQL 시작
-docker-compose -f postgres/docker-compose.yaml up -d
+# 1. PostgreSQL + Superset 시작 (통합)
+docker-compose up -d
 
-# 2. Superset 시작
-docker-compose -f superset/docker-compose.yaml up -d
-
-# 3. ETL 실행 (Airflow DAG 또는 수동)
+# 2. ETL 실행 (processing 서버의 Spark에서 실행)
+# Airflow DAG 또는 수동 실행
 spark-submit /opt/spark/jobs/etl_to_gold.py
 spark-submit /opt/spark/jobs/load_to_postgres.py
 
-# 4. Superset 접속
+# 3. Superset 접속
 # http://localhost:8088 (admin/admin)
 ```
 
@@ -364,8 +342,8 @@ spark-submit /opt/spark/jobs/load_to_postgres.py
 
 ## TODO
 
-- [ ] Spark ETL 코드 작성 (etl_to_gold.py)
-- [ ] PostgreSQL 적재 코드 작성 (load_to_postgres.py)
+- [x] Spark ETL 코드 작성 (etl_to_gold.py)
+- [x] PostgreSQL 적재 코드 작성 (load_to_postgres.py)
+- [x] 자동화 스케줄링 (Airflow SSHOperator 연동)
 - [ ] Superset 대시보드 템플릿
 - [ ] 데이터 품질 검증 로직
-- [ ] 자동화 스케줄링 (Airflow 연동)

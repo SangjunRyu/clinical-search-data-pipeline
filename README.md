@@ -42,6 +42,7 @@ clinical-search-data-pipeline/
 │   └── sample_data/              # 샘플 데이터
 │
 ├── messaging/                    # 메시징 인프라 레이어
+│   ├── messaging.md              # Messaging 상세 문서
 │   └── kafka-compose.yaml        # Kafka 클러스터 구성
 │
 ├── processing/                   # 데이터 처리 레이어
@@ -50,6 +51,8 @@ clinical-search-data-pipeline/
 │   │   └── jobs/
 │   │       ├── streaming_to_silver.py   # 실시간 → Silver
 │   │       ├── batch_to_bronze.py       # 배치 → Bronze
+│   │       ├── etl_to_gold.py           # Silver → Gold 마트
+│   │       ├── load_to_postgres.py      # Gold → PostgreSQL
 │   │       └── consumer_batch.py        # 분석용 (테스트)
 │   ├── airflow/                  # 로컬 Airflow (레거시)
 │   └── spark-compose.yaml        # Spark 클러스터
@@ -62,19 +65,16 @@ clinical-search-data-pipeline/
 │   ├── Dockerfile
 │   └── requirements.txt
 │
-├── gold/                         # Gold Mart 레이어
+├── gold/                         # Gold Mart 레이어 (서빙)
 │   ├── gold.md                   # Gold 상세 문서
-│   ├── spark/jobs/               # ETL 코드
-│   │   ├── etl_to_gold.py        # Silver → Gold
-│   │   └── load_to_postgres.py   # Gold → PostgreSQL
+│   ├── docker-compose.yaml       # PostgreSQL + Superset 통합 구성
 │   ├── postgres/                 # PostgreSQL 설정
-│   │   ├── docker-compose.yaml
-│   │   └── init/
+│   │   └── init/                 # 초기화 SQL
 │   └── superset/                 # Superset 설정
-│       ├── docker-compose.yaml
 │       └── superset_config.py
 │
-└── infrastructure/               # 인프라 설정 (TODO)
+└── infrastructure/               # Technical Architecture
+    └── infrastructure.md         # 인프라 기술 아키텍처 문서
 ```
 
 ---
@@ -135,9 +135,11 @@ clinical-search-data-pipeline/
 | 레이어 | 문서 | 설명 |
 |--------|------|------|
 | Ingestion | [ingestion/ingestion.md](ingestion/ingestion.md) | Kafka Producer, 실시간 전송, dedup 키 |
+| Messaging | [messaging/messaging.md](messaging/messaging.md) | Kafka 클러스터, 브로커 구성, 리스너 설정 |
 | Processing | [processing/processing.md](processing/processing.md) | Spark Streaming/Batch, Bronze/Silver |
 | Orchestration | [orchestration/orchestration.md](orchestration/orchestration.md) | Airflow DAG, Remote Docker API |
 | Gold | [gold/gold.md](gold/gold.md) | 데이터 마트, PostgreSQL, Superset |
+| Infrastructure | [infrastructure/infrastructure.md](infrastructure/infrastructure.md) | Technical Architecture, EC2, Network |
 
 ---
 
@@ -177,9 +179,8 @@ docker-compose -f messaging/kafka-compose.yaml up -d
 # 2. Spark 클러스터
 docker-compose -f processing/spark-compose.yaml up -d
 
-# 3. PostgreSQL + Superset
-docker-compose -f gold/postgres/docker-compose.yaml up -d
-docker-compose -f gold/superset/docker-compose.yaml up -d
+# 3. PostgreSQL + Superset (통합)
+docker-compose -f gold/docker-compose.yaml up -d
 
 # 4. Airflow (Orchestration)
 docker-compose -f orchestration/docker-compose.yaml up -d
@@ -206,7 +207,8 @@ docker-compose -f orchestration/docker-compose.yaml up -d
 
 ## TODO
 
-- [ ] infrastructure/ 디렉터리 구성 (Terraform)
+- [x] infrastructure/ Technical Architecture 문서 작성
+- [ ] Terraform/CloudFormation 템플릿 작성
 - [ ] CI/CD 파이프라인 (GitHub Actions)
 - [ ] 모니터링 (Prometheus + Grafana)
 - [ ] 알림 설정 (Slack/Email)

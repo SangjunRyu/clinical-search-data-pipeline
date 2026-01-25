@@ -8,7 +8,7 @@
 |------|------|
 | 역할 | 전체 DAG 관리 및 스케줄링 |
 | 위치 | 별도 EC2 인스턴스 |
-| 연동 | Remote Docker API, SparkSubmitOperator |
+| 연동 | Remote Docker API (Producer), SSHOperator (Spark) |
 
 ---
 
@@ -29,11 +29,11 @@
 │  │  │  15:00 ─┬─▶ DockerOperator (Producer server0)    │   │   │
 │  │  │         └─▶ DockerOperator (Producer server1)    │   │   │
 │  │  │               ↓                                   │   │   │
-│  │  │  15:00 ────▶ SparkSubmitOperator (Streaming)     │   │   │
+│  │  │  15:00 ────▶ SSHOperator (Streaming → Silver)    │   │   │
 │  │  │               ↓                                   │   │   │
-│  │  │  17:00 ────▶ SparkSubmitOperator (Batch Bronze)  │   │   │
+│  │  │  17:00 ────▶ SSHOperator (Batch → Bronze)        │   │   │
 │  │  │               ↓                                   │   │   │
-│  │  │  18:00 ────▶ SparkSubmitOperator (Gold ETL)      │   │   │
+│  │  │  18:00 ────▶ SSHOperator (ETL → PostgreSQL)      │   │   │
 │  │  └──────────────────────────────────────────────────┘   │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
@@ -45,7 +45,7 @@
     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
     │  WebServer  │     │   Spark     │     │  WebServer  │
     │  (server0)  │     │  Cluster    │     │  (server1)  │
-    │  Docker API │     │             │     │  Docker API │
+    │  Docker API │     │  SSH: 22    │     │  Docker API │
     └─────────────┘     └─────────────┘     └─────────────┘
 ```
 
@@ -89,19 +89,60 @@ orchestration/
 │     │         │                                                │
 │     ├──▶ producer_server1 (DockerOperator)                    │
 │     │         │                                                │
-│     └──▶ streaming_to_silver (SparkSubmitOperator)            │
+│     └──▶ streaming_to_silver (SSHOperator)                    │
 │                   │                                            │
 │  [17:00]          ▼                                            │
-│     └──▶ batch_to_bronze (SparkSubmitOperator)                │
+│     └──▶ batch_to_bronze (SSHOperator)                        │
 │                   │                                            │
 │  [18:00]          ▼                                            │
-│     └──▶ etl_to_gold (SparkSubmitOperator)                    │
+│     └──▶ etl_to_gold (SSHOperator)                            │
 │                   │                                            │
 │                   ▼                                            │
-│     └──▶ notify_completion (SlackOperator)                    │
+│     └──▶ load_to_postgres (SSHOperator)                       │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## SSHOperator 사용 이유
+
+SparkSubmitOperator의 Client Mode 네트워크 문제로 인해 SSHOperator로 전환:
+
+### 문제 상황
+
+- Airflow와 Spark가 각각 다른 서버의 Docker 컨테이너에서 실행
+- Client Mode에서 Driver는 Airflow 컨테이너에서 실행
+- Spark Worker들이 Driver로 결과 반환 시 Docker 내부 IP(172.x.x.x)로 통신 시도
+- 서로 다른 Docker Bridge Network 간 직접 통신 불가
+
+### 검토한 대안
+
+| 대안 | 장점 | 단점 |
+|------|------|------|
+| spark.driver.host 설정 | 네이티브 방식 | 호스트 IP 지정 + 포트 매핑 필요, 설정 복잡 |
+| Host Network Mode | 단순한 네트워크 | 양쪽 모두 변경 필요, 기존 환경 영향 큼 |
+| **SSHOperator** | 네트워크 문제 완전 회피 | SSH 키 관리 필요 |
+
+### 선택 이유
+
+1. 가장 빠르고 안정적인 해결책
+2. 수동으로 Spark 서버에서 실행할 때와 동일한 동작 보장
+3. 기존 인프라 변경 없이 SSH 연결만으로 구현 가능
+
+### 실행 흐름
+
+```
+┌─────────────────────┐         SSH          ┌─────────────────────┐
+│   Airflow Server    │ ───────────────────▶ │   Spark Server      │
+│                     │                       │                     │
+│  SSHOperator        │                       │  docker exec        │
+│  (spark_ssh conn)   │                       │  spark-master       │
+│                     │                       │  spark-submit ...   │
+└─────────────────────┘                       └─────────────────────┘
+```
+
+> **프로덕션 개선 방향**: Spark on Kubernetes + KubernetesPodOperator 권장
 
 ---
 
@@ -137,10 +178,12 @@ airflow connections add docker_server1 \
   --conn-type docker \
   --conn-host tcp://<WEBSERVER1_IP>:2375
 
-# Spark Connection
-airflow connections add spark_cluster \
-  --conn-type spark \
-  --conn-host spark://<SPARK_MASTER_IP>:7077
+# Spark SSH Connection (SSHOperator용)
+airflow connections add spark_ssh \
+  --conn-type ssh \
+  --conn-host <SPARK_SERVER_IP> \
+  --conn-login ubuntu \
+  --conn-extra '{"key_file": "/opt/airflow/config/spark_key.pem"}'
 
 # AWS S3 Connection
 airflow connections add aws_s3 \
@@ -148,6 +191,15 @@ airflow connections add aws_s3 \
   --conn-login <ACCESS_KEY> \
   --conn-password <SECRET_KEY> \
   --conn-extra '{"region_name": "ap-northeast-2"}'
+
+# PostgreSQL Gold Connection
+airflow connections add postgres_gold \
+  --conn-type postgres \
+  --conn-host <POSTGRES_HOST> \
+  --conn-port 5432 \
+  --conn-login gold \
+  --conn-password <POSTGRES_PASSWORD> \
+  --conn-schema tripclick_gold
 ```
 
 ---
@@ -232,9 +284,9 @@ volumes:
 ```
 apache-airflow==2.10.5
 apache-airflow-providers-docker==3.8.0
-apache-airflow-providers-apache-spark==4.5.0
+apache-airflow-providers-ssh==3.10.0
 apache-airflow-providers-amazon==8.16.0
-apache-airflow-providers-slack==8.5.0
+apache-airflow-providers-postgres==5.10.0
 ```
 
 ---
@@ -269,8 +321,8 @@ docker compose up -d
 
 ## TODO
 
-- [ ] Docker Compose 파일 완성
-- [ ] DAG 코드 작성
-- [ ] Connection 초기화 스크립트
+- [x] Docker Compose 파일 완성
+- [x] DAG 코드 작성 (SSHOperator 방식)
+- [ ] Connection 초기화 스크립트 완성
 - [ ] 모니터링 대시보드 (Grafana)
 - [ ] 알림 설정 (Slack/Email)

@@ -2,18 +2,20 @@
 TripClick Gold ETL DAG
 
 - 목적:
-  Silver → Gold 집계 처리 단독 테스트
+  Silver → Gold 집계 처리
 - 구성:
-  - SparkSubmitOperator로 etl_to_gold.py 실행
+  - SSHOperator로 Spark 서버에서 직접 spark-submit 실행
 - 특징:
   - BI 연계 전용 Gold 레이어 생성
+  - 세션 분석, 일별 트래픽, 임상 분야, 인기 문서 마트 생성
 """
 
 from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.models import Variable
-from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
+from airflow.hooks.base import BaseHook
+from airflow.providers.ssh.operators.ssh import SSHOperator
 from airflow.operators.empty import EmptyOperator
 
 
@@ -29,16 +31,27 @@ DEFAULT_ARGS = {
 
 
 # =========================
-# Airflow Variables
+# Airflow Variables & Connections
 # =========================
 S3_SILVER_PATH = Variable.get("S3_SILVER_PATH")
 S3_GOLD_PATH = Variable.get("S3_GOLD_PATH")
+
+# AWS 자격증명은 Connection에서 가져오기
+aws_conn = BaseHook.get_connection("aws_s3")
+AWS_ACCESS_KEY = aws_conn.login
+AWS_SECRET_KEY = aws_conn.password
 
 
 # =========================
 # Static Config
 # =========================
-SPARK_CONN_ID = "spark_cluster"
+SPARK_SSH_CONN_ID = "spark_ssh"  # Spark 서버 SSH Connection
+
+# Spark packages (S3 접근용)
+SPARK_PACKAGES = ",".join([
+    "org.apache.hadoop:hadoop-aws:3.3.4",
+    "com.amazonaws:aws-java-sdk-bundle:1.12.262",
+])
 
 
 # =========================
@@ -58,19 +71,30 @@ with DAG(
     end = EmptyOperator(task_id="end")
 
     # =========================
-    # ETL to Gold
+    # ETL to Gold (via SSH)
     # =========================
-    etl_to_gold = SparkSubmitOperator(
+    # Spark 서버의 Docker 컨테이너에서 직접 spark-submit 실행
+    etl_to_gold = SSHOperator(
         task_id="etl_to_gold",
-        application="/opt/spark/jobs/etl_to_gold.py",
-        conn_id=SPARK_CONN_ID,
-        env_vars={
+        ssh_conn_id=SPARK_SSH_CONN_ID,
+        command=f"""
+docker exec spark-master spark-submit \\
+  --master spark://spark-master:7077 \\
+  --packages {SPARK_PACKAGES} \\
+  --conf spark.hadoop.fs.s3a.access.key={AWS_ACCESS_KEY} \\
+  --conf spark.hadoop.fs.s3a.secret.key={AWS_SECRET_KEY} \\
+  --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \\
+  --conf spark.hadoop.fs.s3a.endpoint=s3.ap-northeast-2.amazonaws.com \\
+  --conf spark.executor.memory=1g \\
+  --conf spark.driver.memory=1g \\
+  /opt/spark/jobs/etl_to_gold.py
+""",
+        environment={
             "S3_SILVER_PATH": S3_SILVER_PATH,
             "S3_GOLD_PATH": S3_GOLD_PATH,
-            "AWS_ACCESS_KEY_ID": "{{ conn.aws_s3.login }}",
-            "AWS_SECRET_ACCESS_KEY": "{{ conn.aws_s3.password }}",
         },
-        verbose=True,
+        cmd_timeout=1800,  # 30분 타임아웃
+        conn_timeout=30,
     )
 
     # =========================

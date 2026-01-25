@@ -52,15 +52,18 @@ docker exec -it spark-master spark-submit \
   /opt/spark/jobs/streaming_to_silver.py
 ```
 
-### 4단계: Airflow 연동 테스트
+### 4단계: Airflow 연동 테스트 (SSHOperator)
+
+> **Note**: SparkSubmitOperator의 Client Mode 네트워크 문제로 인해 SSHOperator를 사용합니다.
 
 1. **Airflow Connection 설정**:
 ```bash
-# Spark Connection 추가
-airflow connections add spark_cluster \
-  --conn-type spark \
-  --conn-host spark://<SPARK_MASTER_IP> \
-  --conn-port 7077
+# Spark SSH Connection 추가 (SSHOperator용)
+airflow connections add spark_ssh \
+  --conn-type ssh \
+  --conn-host <SPARK_SERVER_IP> \
+  --conn-login ubuntu \
+  --conn-extra '{"key_file": "/opt/airflow/config/spark_key.pem"}'
 
 # AWS S3 Connection 추가
 airflow connections add aws_s3 \
@@ -77,8 +80,8 @@ airflow variables set S3_SILVER_PATH "s3a://tripclick-lake/silver/"
 ```
 
 3. **DAG 실행**:
-- `tripclick_batch_bronze`: Batch → Bronze 테스트
-- `tripclick_streaming_silver`: Streaming → Silver 테스트
+- `tripclick_batch_bronze`: Batch → Bronze 테스트 (SSHOperator)
+- `tripclick_streaming_silver`: Streaming → Silver 테스트 (SSHOperator)
 
 ---
 
