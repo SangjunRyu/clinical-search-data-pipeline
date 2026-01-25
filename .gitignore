@@ -50,7 +50,8 @@ airflow-webserver.pid
 # Secrets / Credentials
 # =========================
 .env
-.env.*
+**/.env
+!**/.env.example
 *.pem
 *.key
 credentials.json

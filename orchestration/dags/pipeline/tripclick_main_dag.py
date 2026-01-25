@@ -48,11 +48,11 @@ with DAG(
     end = EmptyOperator(task_id="end")
 
     # =========================
-    # Step 1: Ingestion (Producer - Batch Mode)
+    # Step 1: Ingestion (Producer)
     # =========================
     trigger_producer = TriggerDagRunOperator(
         task_id="trigger_producer",
-        trigger_dag_id="tripclick_producer_batch",
+        trigger_dag_id="tripclick_producer",
         wait_for_completion=True,
         poke_interval=30,
         execution_date="{{ ds }}",

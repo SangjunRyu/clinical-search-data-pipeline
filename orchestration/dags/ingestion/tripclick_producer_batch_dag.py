@@ -60,12 +60,11 @@ with DAG(
     end = EmptyOperator(task_id="end")
 
     # =========================
-    # Producer - Server 0 (Batch)
+    # Producer - Server 0
     # =========================
     producer_server0 = DockerOperator(
         task_id="producer_server0_batch",
         image=PRODUCER_IMAGE,
-        force_pull=False,
         command=[
             "--mode", "batch",
             "--file", "/app/data/date={{ ds }}/events.json",
@@ -90,16 +89,55 @@ with DAG(
                 read_only=True,
             ),
             Mount(
-              source="/home/ubuntu/ingestion/logs",
-              target="/app/logs",
-              type="bind",
-          ),
+                source="/home/ubuntu/ingestion/logs",
+                target="/app/logs",
+                type="bind",
+            ),
         ],
         mount_tmp_dir=False,
         auto_remove="success",
     )
 
     # =========================
-    # Dependencies
+    # Producer - Server 1
     # =========================
-    start >> producer_server0 >> end
+    producer_server1 = DockerOperator(
+        task_id="producer_server1_batch",
+        image=PRODUCER_IMAGE,
+        command=[
+            "--mode", "batch",
+            "--file", "/app/data/date={{ ds }}/events.json",
+            "--topic", "tripclick_raw_logs",
+        ],
+        docker_url="tcp://10.0.16.8:2375",
+        network_mode="host",
+        environment={
+            "KAFKA_BROKERS": KAFKA_BROKERS,
+        },
+        mounts=[
+            Mount(
+                source=f"{WEBSERVER_INGESTION_PATH}/server1",
+                target="/app/data",
+                type="bind",
+                read_only=True,
+            ),
+            Mount(
+                source=f"{WEBSERVER_INGESTION_PATH}/ingestion/config",
+                target="/app/config",
+                type="bind",
+                read_only=True,
+            ),
+            Mount(
+                source="/home/ubuntu/ingestion/logs",
+                target="/app/logs",
+                type="bind",
+            ),
+        ],
+        mount_tmp_dir=False,
+        auto_remove="success",
+    )
+
+    # =========================
+    # Dependencies (병렬 실행)
+    # =========================
+    start >> [producer_server0, producer_server1] >> end

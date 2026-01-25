@@ -28,11 +28,12 @@ docker-compose -f spark-compose.yaml up -d
 ```bash
 # Spark Master 컨테이너에서 직접 실행
 docker exec -it spark-master spark-submit \
-  --master spark://localhost:7077 \
-  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1 \
-  --conf spark.hadoop.fs.s3a.access.key=$AWS_ACCESS_KEY_ID \
-  --conf spark.hadoop.fs.s3a.secret.key=$AWS_SECRET_ACCESS_KEY \
+  --master spark://spark-master:7077 \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 \
+  --conf spark.hadoop.fs.s3a.access.key=${AWS_ACCESS_KEY_ID} \
+  --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY} \
   --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
+  --conf spark.hadoop.fs.s3a.endpoint=s3.ap-northeast-2.amazonaws.com \
   /opt/spark/jobs/batch_to_bronze.py
 ```
 
@@ -44,11 +45,10 @@ docker exec -it spark-master spark-submit \
 
 # Streaming Job 실행 (1시간 동안 실행)
 docker exec -it spark-master spark-submit \
-  --master spark://localhost:7077 \
-  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1 \
-  --conf spark.hadoop.fs.s3a.access.key=$AWS_ACCESS_KEY_ID \
-  --conf spark.hadoop.fs.s3a.secret.key=$AWS_SECRET_ACCESS_KEY \
+  --master spark://spark-master:7077 \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 \
   --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
+  --conf spark.hadoop.fs.s3a.endpoint=s3.ap-northeast-2.amazonaws.com \
   /opt/spark/jobs/streaming_to_silver.py
 ```
 
