@@ -40,6 +40,9 @@ S3_BRONZE_PATH = Variable.get("S3_BRONZE_PATH")
 # =========================
 SPARK_CONN_ID = "spark_cluster"
 
+# Spark packages (Kafka connector)
+SPARK_PACKAGES = "org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1"
+
 
 # =========================
 # DAG Definition
@@ -64,11 +67,20 @@ with DAG(
         task_id="batch_to_bronze",
         application="/opt/spark/jobs/batch_to_bronze.py",
         conn_id=SPARK_CONN_ID,
+        packages=SPARK_PACKAGES,
+        conf={
+            # S3 Hadoop 설정
+            "spark.hadoop.fs.s3a.access.key": "{{ conn.aws_s3.login }}",
+            "spark.hadoop.fs.s3a.secret.key": "{{ conn.aws_s3.password }}",
+            "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
+            "spark.hadoop.fs.s3a.endpoint": "s3.ap-northeast-2.amazonaws.com",
+            # 메모리 설정
+            "spark.executor.memory": "2g",
+            "spark.driver.memory": "1g",
+        },
         env_vars={
             "KAFKA_BROKERS": KAFKA_BROKERS,
             "S3_BRONZE_PATH": S3_BRONZE_PATH,
-            "AWS_ACCESS_KEY_ID": "{{ conn.aws_s3.login }}",
-            "AWS_SECRET_ACCESS_KEY": "{{ conn.aws_s3.password }}",
         },
         verbose=True,
     )

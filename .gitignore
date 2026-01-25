@@ -3,6 +3,7 @@
 # =========================
 **/config/config.yaml
 **/config/*.yaml
+!**/config/*.yaml.example
 !**/config/*.example.yaml
 
 # =========================

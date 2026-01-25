@@ -1,0 +1,23 @@
+# ==============================================
+# TripClick Spark Processing Config
+# ==============================================
+# 이 파일을 config.yaml로 복사 후 실제 값으로 수정
+#
+# cp config.yaml.example config.yaml
+# ==============================================
+
+kafka:
+  brokers:
+    - <KAFKA_BROKER_IP>:9092
+    - <KAFKA_BROKER_IP>:9093
+    - <KAFKA_BROKER_IP>:9094
+
+s3:
+  bronze_path: "s3a://tripclick-lake/bronze/"
+  silver_path: "s3a://tripclick-lake/silver/"
+
+# AWS 자격증명 (환경변수 사용 권장)
+# aws:
+#   access_key_id: "YOUR_ACCESS_KEY"
+#   secret_access_key: "YOUR_SECRET_KEY"
+#   region: "ap-northeast-2"

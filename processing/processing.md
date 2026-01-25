@@ -1,3 +1,90 @@
+## 테스트 가이드
+
+### 1단계: Spark 클러스터 실행
+
+```bash
+# processing 디렉토리로 이동
+cd processing
+
+# config 파일 생성
+cp spark/config/config.yaml.example spark/config/config.yaml
+# config.yaml에서 KAFKA_BROKERS IP 수정
+
+# 환경변수 설정
+export KAFKA_BROKERS="<KAFKA_IP>:9092,<KAFKA_IP>:9093,<KAFKA_IP>:9094"
+export S3_BRONZE_PATH="s3a://tripclick-lake/bronze/"
+export S3_SILVER_PATH="s3a://tripclick-lake/silver/"
+export AWS_ACCESS_KEY_ID="your-access-key"
+export AWS_SECRET_ACCESS_KEY="your-secret-key"
+
+# Spark 클러스터 시작
+docker-compose -f spark-compose.yaml up -d
+
+# Spark UI 확인: http://localhost:8181
+```
+
+### 2단계: Batch Job 테스트 (Kafka → Bronze)
+
+```bash
+# Spark Master 컨테이너에서 직접 실행
+docker exec -it spark-master spark-submit \
+  --master spark://localhost:7077 \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1 \
+  --conf spark.hadoop.fs.s3a.access.key=$AWS_ACCESS_KEY_ID \
+  --conf spark.hadoop.fs.s3a.secret.key=$AWS_SECRET_ACCESS_KEY \
+  --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
+  /opt/spark/jobs/batch_to_bronze.py
+```
+
+### 3단계: Streaming Job 테스트 (Kafka → Silver)
+
+```bash
+# Producer 실행 (다른 터미널에서)
+# ingestion 서버에서 producer 실행 필요
+
+# Streaming Job 실행 (1시간 동안 실행)
+docker exec -it spark-master spark-submit \
+  --master spark://localhost:7077 \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1 \
+  --conf spark.hadoop.fs.s3a.access.key=$AWS_ACCESS_KEY_ID \
+  --conf spark.hadoop.fs.s3a.secret.key=$AWS_SECRET_ACCESS_KEY \
+  --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
+  /opt/spark/jobs/streaming_to_silver.py
+```
+
+### 4단계: Airflow 연동 테스트
+
+1. **Airflow Connection 설정**:
+```bash
+# Spark Connection 추가
+airflow connections add spark_cluster \
+  --conn-type spark \
+  --conn-host spark://<SPARK_MASTER_IP> \
+  --conn-port 7077
+
+# AWS S3 Connection 추가
+airflow connections add aws_s3 \
+  --conn-type aws \
+  --conn-login $AWS_ACCESS_KEY_ID \
+  --conn-password $AWS_SECRET_ACCESS_KEY
+```
+
+2. **Airflow Variables 설정**:
+```bash
+airflow variables set KAFKA_BROKERS "<KAFKA_IP>:9092"
+airflow variables set S3_BRONZE_PATH "s3a://tripclick-lake/bronze/"
+airflow variables set S3_SILVER_PATH "s3a://tripclick-lake/silver/"
+```
+
+3. **DAG 실행**:
+- `tripclick_batch_bronze`: Batch → Bronze 테스트
+- `tripclick_streaming_silver`: Streaming → Silver 테스트
+
+---
+
+
+
+
 # Processing Layer
 
 Kafka 데이터를 처리하여 S3 Data Lake에 저장하는 레이어
@@ -58,8 +145,6 @@ processing/
 │   │   └── config.yaml              # Spark 설정
 │   ├── jars/                        # Kafka/S3 커넥터
 │   └── Dockerfile
-├── airflow/                         # 로컬 Airflow (레거시)
-│   └── ...
 └── spark-compose.yaml               # Spark 클러스터
 ```
 
