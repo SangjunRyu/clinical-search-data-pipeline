@@ -1,7 +1,79 @@
 -- TripClick Gold Mart Tables
--- Superset 시각화용 데이터 마트
+-- Superset 시각화용 데이터 마트 (Hot/Cold 2계층)
 
--- =========================
+-- =========================================================
+-- HOT GOLD: Near Real-Time 마트 (1~5분 마이크로배치)
+-- =========================================================
+
+-- 1. 실시간 트래픽 마트 (분 단위)
+CREATE TABLE IF NOT EXISTS mart_realtime_traffic_minute (
+    event_minute TIMESTAMP NOT NULL,
+    total_clicks INT DEFAULT 0,
+    unique_sessions INT DEFAULT 0,
+    unique_docs INT DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (event_minute)
+);
+
+COMMENT ON TABLE mart_realtime_traffic_minute IS '분 단위 실시간 트래픽 (Hot Gold)';
+COMMENT ON COLUMN mart_realtime_traffic_minute.event_minute IS '분 단위 버킷';
+COMMENT ON COLUMN mart_realtime_traffic_minute.total_clicks IS '총 클릭 수';
+COMMENT ON COLUMN mart_realtime_traffic_minute.unique_sessions IS '유니크 세션 수';
+COMMENT ON COLUMN mart_realtime_traffic_minute.unique_docs IS '유니크 문서 수';
+
+-- 2. 실시간 인기 문서 TOP N (최근 1시간)
+CREATE TABLE IF NOT EXISTS mart_realtime_top_docs_1h (
+    snapshot_ts TIMESTAMP NOT NULL,
+    rank INT NOT NULL,
+    document_id INT NOT NULL,
+    title VARCHAR(500),
+    click_count INT DEFAULT 0,
+    unique_sessions INT DEFAULT 0,
+    PRIMARY KEY (snapshot_ts, rank)
+);
+
+COMMENT ON TABLE mart_realtime_top_docs_1h IS '최근 1시간 인기 문서 TOP N (Hot Gold)';
+COMMENT ON COLUMN mart_realtime_top_docs_1h.snapshot_ts IS '스냅샷 시각';
+COMMENT ON COLUMN mart_realtime_top_docs_1h.rank IS '순위 (1~20)';
+
+-- 3. 실시간 임상영역 트렌드 (최근 24시간)
+CREATE TABLE IF NOT EXISTS mart_realtime_clinical_trend_24h (
+    snapshot_ts TIMESTAMP NOT NULL,
+    clinical_area VARCHAR(100) NOT NULL,
+    click_count INT DEFAULT 0,
+    unique_sessions INT DEFAULT 0,
+    trend_pct DECIMAL(5,2) DEFAULT 0.00,
+    PRIMARY KEY (snapshot_ts, clinical_area)
+);
+
+COMMENT ON TABLE mart_realtime_clinical_trend_24h IS '최근 24시간 임상영역 트렌드 (Hot Gold)';
+COMMENT ON COLUMN mart_realtime_clinical_trend_24h.trend_pct IS '전일 대비 증감률 (%)';
+
+-- 4. 이상징후 감지 마트
+CREATE TABLE IF NOT EXISTS mart_realtime_anomaly_sessions (
+    detected_ts TIMESTAMP NOT NULL,
+    session_id VARCHAR(50) NOT NULL,
+    window_start TIMESTAMP,
+    window_end TIMESTAMP,
+    click_count INT DEFAULT 0,
+    severity VARCHAR(20) DEFAULT 'WARNING',
+    PRIMARY KEY (detected_ts, session_id)
+);
+
+COMMENT ON TABLE mart_realtime_anomaly_sessions IS '세션 클릭 폭증 이상징후 감지 (Hot Gold)';
+COMMENT ON COLUMN mart_realtime_anomaly_sessions.severity IS '심각도 (WARNING/CRITICAL)';
+
+-- Hot Gold 인덱스
+CREATE INDEX IF NOT EXISTS idx_realtime_traffic_minute ON mart_realtime_traffic_minute(event_minute DESC);
+CREATE INDEX IF NOT EXISTS idx_realtime_top_docs_snapshot ON mart_realtime_top_docs_1h(snapshot_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_realtime_clinical_snapshot ON mart_realtime_clinical_trend_24h(snapshot_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_realtime_anomaly_detected ON mart_realtime_anomaly_sessions(detected_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_realtime_anomaly_severity ON mart_realtime_anomaly_sessions(severity);
+
+-- =========================================================
+-- COLD GOLD: Daily Batch 마트 (T+1 정합성)
+-- =========================================================
+
 -- 1. 세션 분석 마트
 -- =========================
 CREATE TABLE IF NOT EXISTS mart_session_analysis (

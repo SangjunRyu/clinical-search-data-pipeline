@@ -1,0 +1,398 @@
+1) 지금 문서/구현의 좋은 점 (강점)
+
+DAG를 기능별로 분리해서 디버깅/부분 재실행 가능하게 만든 구조는 매우 실무적이야. 메인 DAG에서 Trigger로 순차 실행하는 설명도 명확함. 
+
+dags
+
+**Streaming → Silver(정제/중복제거) / Batch → Bronze(원본보존)**로 역할을 분리한 점이 “왜 레이어가 필요한지”를 잘 뒷받침해. 
+
+processing
+
+SparkSubmitOperator의 네트워크 이슈를 “왜 SSHOperator로 갔는지” 근거/대안 비교까지 적어둔 게 면접/리뷰에서 강해져. 
+
+orchestration
+
+Gold를 PostgreSQL로 적재하여 Superset BI에 연결한다는 선택도 “데모/대시보드” 관점에서 설득력 있어. 
+
+gold
+
+2) 현재 문서에서 아쉬운 점 (보완하면 좋은 구멍들)
+(A) “Gold는 왜 배치인지 / 왜 실시간이 아닌지” 판단 근거가 문서에 없음
+
+Gold.md는 “RDB 적재로 실시간 쿼리 성능”을 말하지만, 실제 파이프라인은 Silver 집계 후 적재(배치성 ETL) 흐름이 주로 서술돼 있어 약간 논리가 점프해.
+→ 여기서 **Gold의 ‘Freshness 요구사항’(예: T+1이면 충분 vs 5~10분 내 반영 필요)**을 명시하면 문서가 훨씬 단단해져.
+
+(B) tripclick_gold_dag vs tripclick_load_postgres 역할이 살짝 중복/혼선
+
+dags.md에는
+
+tripclick_gold_etl: Silver→Gold 집계 → PostgreSQL 적재
+
+tripclick_load_postgres: Silver→PostgreSQL 적재
+라고 되어 있어서, “Gold가 S3가 아닌 PostgreSQL이라며?”(gold.md)와 조합될 때 독자가 헷갈릴 수 있어.
+→ 둘 중 하나를 “집계/변환” vs “로딩 전용”으로 명확히 분리하거나, 하나로 합치고 모드를 파라미터화(full refresh / incremental)하는 게 좋아.
+
+(C) 적재의 “idempotency(재실행 안전성)”/“증분 로딩 기준”이 부족
+
+현재 샘플은 .mode("overwrite")가 보이는데, 운영/면접 관점에선 거의 항상 질문 나와:
+
+“재실행하면 데이터 중복/유실은?”
+
+“증분 기준은? watermark? last_processed_date?”
+
+“늦게 도착한 데이터(late event)는?”
+
+3) 결론: Gold를 “실시간”으로도 해야 하나?
+
+정답은 “목표가 무엇이냐”에 따라 갈려. 다만 지금 프로젝트(TripClick 스트리밍 시뮬레이션 + Superset 데모) 맥락에선 보통 아래처럼 정리하면 설득력이 최고야.
+
+✅ (1) 배치 Gold만으로도 충분한 경우
+
+대시보드가 일별/주별 트렌드 중심 (mart_daily_traffic, 인기문서 TopN 등)
+
+데이터 품질/정합성이 중요해서 **하루 1회 재집계(full refresh)**로 안정성 확보가 더 중요
+
+Postgres 단일 노드라서 실시간 upsert 부하를 피하고 싶음
+
+→ 네가 정의한 마트 대부분이 “event_date 기준 집계”라서 원칙적으로는 T+1 배치가 자연스러움. 
+
+gold
+
+✅ (2) “실시간(near real-time) Gold”가 있으면 확실히 좋아지는 경우
+
+“스트리밍 파이프라인을 구축했다”를 시각적으로 보여주고 싶다 (데모/포트폴리오)
+
+Superset에서 “방금 들어온 트래픽이 올라가는 라인차트” 같은 걸 보여주고 싶다
+
+운영 시나리오로 “이상징후/급증 감지” 같은 freshness 요구가 있다
+
+→ 너는 이미 realtime producer + streaming to silver까지 구현했으니, Gold까지 “10분 지연” 정도의 near real-time mart를 추가하면 스토리가 완성돼.
+
+4) 실시간 Gold가 “필요하다”로 결정했다면, 무엇을 더 반영/작성하면 좋나?
+
+여기부터가 핵심이야. “실시간 Gold”를 추가하면 반드시 함께 나와야 하는 설계 포인트들이 있어.
+
+4-1. 추천 설계: “Hot(실시간) + Cold(배치) 2계층”로 문서화
+
+Gold 문서에 아래를 추가하면 면접에서 매우 강해져.
+
+Hot Mart (Near Real-time, 예: 5~10분 지연)
+
+최근 24시간/최근 1시간 같은 “짧은 창” 집계
+
+upsert 기반(ON CONFLICT DO UPDATE)
+
+Cold Mart (Daily Batch, 정합성 기준)
+
+event_date 단위로 full recompute 후 replace
+
+Hot 데이터를 매일 새벽에 정합성으로 덮어써서 “late event”까지 흡수
+
+이 구조는 “실시간을 하되 정합성은 배치로 보장”하는 전형적인 정답 패턴이야.
+
+4-2. 실시간 Gold의 “기술 구현 포인트”를 md에 명시
+
+실시간으로 하면 바로 질문 받는 항목들이라, 문서에 박아두는 게 좋아.
+
+증분 기준(Incremental Key)
+
+Kafka offset(또는 event_ts watermark) 기반으로 “어디까지 처리했는지” 저장
+
+또는 Silver에 event_date, hour 파티션 기준으로 최근 N 파티션만 재집계
+
+Idempotency(재실행 안전성)
+
+Postgres 적재는 INSERT ... ON CONFLICT ... DO UPDATE로 “같은 키면 갱신”
+
+마트 PK가 이미 정의돼 있으니(예: (event_date, document_id)) 활용 가능 
+
+gold
+
+Late data 처리 전략
+
+스트리밍은 watermark(이미 Silver에서 사용)로 늦은 이벤트를 어느 정도 컷 
+
+processing
+
+그래도 남는 late event는 Cold Mart 배치가 최종 정합성 보정 역할
+
+부하/성능
+
+Postgres는 초당 대량 upsert가 약할 수 있으니
+
+“마이크로배치(예: 1분/5분)”
+
+“최근 N분 집계만”
+
+“fact 테이블 + materialized view”
+같은 제한을 문서에 넣어야 현실적이 됨.
+
+5) “실시간 Gold”를 실제로 추가한다면, 가장 무난한 구현 2가지
+옵션 A) Spark Structured Streaming → foreachBatch로 Postgres Upsert (가장 포트폴리오/데모 친화적)
+
+Kafka 또는 Silver를 스트리밍으로 읽고
+
+foreachBatch에서 집계 후 Postgres에 upsert
+
+핵심은 “집계 결과를 매번 overwrite하지 말고 upsert”야.
+
+예시(개념 스케치):
+
+def upsert_mart_daily_traffic(batch_df, batch_id):
+    agg = (batch_df.groupBy("event_date")
+           .agg(F.count("*").alias("total_events"),
+                F.countDistinct("session_id").alias("unique_sessions"),
+                F.countDistinct("document_id").alias("unique_documents")))
+
+    # JDBC write는 기본이 insert라서,
+    # 보통은 psycopg2로 temp table 넣고 MERGE(ON CONFLICT) 하거나
+    # batch_df.foreachPartition으로 executemany upsert 패턴을 쓴다.
+
+query = (silver_stream_df
+         .writeStream
+         .foreachBatch(upsert_mart_daily_traffic)
+         .option("checkpointLocation", "s3a://.../chk/gold_hot/daily_traffic")
+         .trigger(processingTime="5 minutes")
+         .start())
+
+옵션 B) Postgres에 “fact 이벤트 테이블”을 먼저 쌓고, Superset은 View/Materialized View로 집계
+
+스트리밍은 단순 append(사실 테이블 적재) → 부담 적음
+
+집계는 SQL view/materialized view로 처리
+
+예:
+
+fact_click_events(event_ts, event_date, session_id, document_id, clinical_area, ...)
+
+mart_daily_traffic는 materialized view로 주기 refresh
+
+이 방식은 “DB에서 집계”라 Spark 로직은 단순해지고, 실시간성도 어느 정도 확보 가능.
+
+6) 네 문서에 “이 문단”만 추가해도 설득력 확 뛰는 체크리스트
+
+Gold.md에 아래 섹션을 추가 추천:
+
+Freshness SLA
+
+Cold Mart: daily T+1 (정합성)
+
+Hot Mart: 5~10분 지연 (데모/모니터링)
+
+Reconciliation
+
+매일 배치가 Hot Mart 범위를 포함해 재집계 후 덮어쓰기
+
+Idempotency
+
+PK 기반 upsert / 재실행 시 동일 결과 보장
+
+Late events
+
+Silver watermark(10분) + daily recompute로 최종 보정 
+
+processing
+
+Failure/Retry
+
+checkpoint 위치(S3) / 재시작 시 재처리 범위
+
+DAG 정리
+
+tripclick_gold_etl(Cold) vs tripclick_gold_realtime(Hot) 같은 식으로 명명/분리 
+
+dags
+
+원하면, 네 현재 구조를 최대한 유지하면서 “Hot Gold DAG 1개 추가”(예: tripclick_gold_realtime_mart)로 끝내는 방향으로,
+
+DAG 설계(Trigger 포함)
+
+Spark job 설계(5분 마이크로배치 + upsert)
+
+Postgres upsert SQL/인덱스(충돌키, 성능)
+까지 “문서에 그대로 붙여 넣을 수 있는 형태”로 써줄게.
+
+
+
+Near Real-Time(마이크로배치) Gold 작업 시나리오
+목적
+
+“실시간 스트리밍 파이프라인을 구축했다”를 대시보드에서 체감되게 만들기
+
+단, Gold는 정합성이 중요한 영역이므로 완전 실시간(초 단위) 대신 1~5분 마이크로배치로 운영 안정성과 최신성을 균형있게 가져간다.
+
+1) 전체 흐름 (Hot + Cold 2계층)
+Hot Gold (Near Real-Time)
+
+Freshness 목표: 1~5분 지연(near real-time)
+
+대상: “지금 상황”을 보여주는 지표들
+
+특징: 부분 업데이트(Upsert), 최근 구간만 다룸
+
+예)
+
+최근 1시간/24시간 트래픽 추이
+
+“지금 뜨는 문서 TOP N”
+
+Clinical Area별 실시간 관심도
+
+세션 이상징후(짧은 시간 클릭 폭증 등)
+
+Cold Gold (Daily Batch)
+
+Freshness 목표: T+1(하루 1회)
+
+대상: 최종 정합성/리포팅 기준 데이터
+
+역할: Hot Gold에서 놓칠 수 있는 late event(늦게 도착한 데이터)까지 포함해 매일 재집계로 “정답 테이블”을 만든다.
+
+2) Near Real-Time 처리 전략 (마이크로배치 설계)
+입력 소스
+
+1안) Kafka raw topic을 직접 스트리밍으로 소비
+
+2안) (권장) Silver 스트리밍 결과를 기준으로 Gold Hot을 만든다
+
+이유: 이미 Silver에서 dedup / 타입 정리 / watermark 등을 적용했기 때문에 Gold는 지표 계산에 집중 가능
+
+트리거(실행 주기)
+
+trigger(processingTime="1 minute") 또는 5 minutes
+
+운영적 안정성을 원하면 5분, “실시간 느낌”을 강조하려면 1분
+
+데이터 범위(윈도우/재집계)
+
+“전체 기간”을 매번 집계하면 비효율 → 최근 N분/최근 N시간만 대상으로 집계
+
+예:
+
+최근 10분 데이터를 집계해서 “분 단위 트래픽” 테이블 업데이트
+
+최근 1시간 데이터를 집계해서 “현재 TOP 문서” 업데이트
+
+3) Hot Gold로 만들기 좋은 마트 시나리오 4종
+(A) 실시간 트래픽: 분 단위 클릭/세션 수
+
+목표: Superset 라인차트에서 “지금 트래픽이 움직이는 것”을 보여줌
+
+집계 단위: event_minute = date_trunc('minute', event_ts)
+
+지표:
+
+total_clicks
+
+unique_sessions
+
+unique_docs
+
+테이블 예시: mart_realtime_traffic_minute
+
+PK: (event_minute)
+
+업데이트 방식: upsert
+
+같은 minute 버킷은 계속 값이 커질 수 있으니 “덮어쓰는 upsert”가 자연스럽다.
+
+(B) 실시간 인기 문서 TOP N (최근 1시간)
+
+목표: “현재 뜨는 문서” 랭킹을 보여줌
+
+윈도우: 최근 1시간(또는 30분)
+
+집계: document_id별 click_count
+
+결과: TOP 20
+
+테이블 예시: mart_realtime_top_docs_1h
+
+PK: (as_of_ts, rank) 또는 (window_start, window_end, document_id)
+
+업데이트 방식:
+
+매 마이크로배치마다 window_end를 “현재시각”으로 두고 새 스냅샷을 insert
+
+Superset은 최신 as_of_ts만 필터링해서 표시
+
+장점: upsert 부담이 적고 “스냅샷”이라 분석도 쉬움
+
+(C) Clinical Area 실시간 관심도 (최근 24시간)
+
+목표: “어떤 진료영역이 요즘 관심 받나”를 거의 실시간으로
+
+윈도우: 최근 24시간(또는 6시간)
+
+집계: clinical_area별 unique_sessions / clicks
+
+테이블 예시: mart_realtime_clinical_trend_24h
+
+PK: (as_of_ts, clinical_area)
+
+업데이트 방식: 스냅샷 insert(권장)
+
+마이크로배치마다 최신 스냅샷을 쌓고, 최근 1개만 보여주거나, 추이로 보여줄 수도 있음
+
+(D) 이상징후: 세션 클릭 폭증 감지 (Near Real-Time Alert)
+
+목표: 스트리밍을 “썼다”가 가장 잘 드러나는 케이스
+
+룰 예시:
+
+5분 내 동일 session_id 클릭이 50회 이상
+
+동일 doc_id가 1분 내 과도하게 급증
+
+테이블 예시: mart_realtime_anomaly_sessions
+
+컬럼: detected_ts, session_id, window_start, window_end, click_count, severity
+
+업데이트 방식: insert only
+
+이상징후는 이벤트성 기록이라 upsert 필요 없음
+
+4) 운영 관점에서 문서에 꼭 넣으면 좋은 포인트
+Idempotency(재실행 안전성)
+
+마이크로배치는 실패/재시작이 흔함
+
+따라서 “같은 윈도우 결과를 다시 써도 동일해지는 구조”가 필요
+
+방식:
+
+(윈도우 버킷 PK 기반) upsert
+
+또는 스냅샷 insert + 최신 1개만 조회(중복 영향 최소)
+
+Late event 처리
+
+Silver watermark(예: 10분)가 있어도 늦게 들어오는 데이터는 존재
+
+해결:
+
+Hot Gold는 “최근 짧은 범위”에서만 near-real-time 제공
+
+Cold Gold가 daily batch로 전체 재집계하면서 최종 정합성 보정
+
+리소스/성능 절충
+
+Postgres에 초당 upsert 난사 금지
+
+실전 설계:
+
+트리거 1~5분
+
+최근 구간만 집계
+
+스냅샷 테이블 활용(업데이트 부하 ↓)
+
+5) 문서에 바로 넣을 “요약 문단”(붙여넣기용)
+
+본 프로젝트는 Kafka 기반 이벤트 스트림을 Spark Structured Streaming으로 처리하여 Silver 계층에서 중복 제거 및 스키마 정규화를 수행한 뒤, Gold 계층에서는 완전 실시간이 아닌 1~5분 단위 마이크로배치(Near Real-Time)로 주요 KPI를 생성한다. Gold는 Hot/Cold 2계층으로 구성하여 Hot Gold는 최근 1시간~24시간 범위의 트래픽/인기문서/임상영역 트렌드/이상징후를 빠르게 제공하고, Cold Gold는 일 1회 배치 재집계로 late event를 포함한 최종 정합성을 보장한다. 이를 통해 “실시간성”과 “정합성”의 균형을 달성한다.
+
+원하면 다음 단계로, 네가 이미 만든 mart_ 테이블 스키마에 맞춰서*
+
+“어떤 테이블을 Hot로 둘지” 딱 골라주고
+
+각 테이블별 PK 설계(Upsert 키) + Superset 차트 추천(라인/바/테이블) + 마이크로배치 주기까지 “완성형”으로 정리해줄게.
