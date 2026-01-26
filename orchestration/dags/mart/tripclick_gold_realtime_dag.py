@@ -38,7 +38,7 @@ DEFAULT_ARGS = {
 # Airflow Variables & Connections
 # =========================
 S3_SILVER_PATH = Variable.get("S3_SILVER_PATH")
-S3_CHECKPOINT_PATH = Variable.get("S3_CHECKPOINT_PATH", default_var="s3a://tripclick-lake/checkpoint/")
+S3_CHECKPOINT_PATH = Variable.get("S3_CHECKPOINT_PATH", default_var="s3a://tripclick-lake-sangjun/checkpoint/")
 
 # AWS 자격증명
 aws_conn = BaseHook.get_connection("aws_s3")

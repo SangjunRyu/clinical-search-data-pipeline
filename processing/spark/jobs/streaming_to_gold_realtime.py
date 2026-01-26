@@ -35,10 +35,10 @@ def load_config():
     """환경변수에서 설정 로드"""
     return {
         "s3": {
-            "silver_path": os.getenv("S3_SILVER_PATH", "s3a://tripclick-lake/silver/"),
+            "silver_path": os.getenv("S3_SILVER_PATH", "s3a://tripclick-lake-sangjun/silver/"),
             "checkpoint_path": os.getenv(
                 "S3_CHECKPOINT_PATH",
-                "s3a://tripclick-lake/checkpoint/gold_realtime/"
+                "s3a://tripclick-lake-sangjun/checkpoint/gold_realtime/"
             ),
         },
         "postgres": {

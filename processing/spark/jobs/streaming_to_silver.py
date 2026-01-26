@@ -71,18 +71,20 @@ def main():
     config = load_config()
     kafka_brokers = ",".join(config["kafka"]["brokers"])
     silver_path = config["s3"]["silver_path"]
+    checkpoint_path = silver_path.rstrip("/").rsplit("/", 1)[0] + "/checkpoint/silver"
 
     # Spark Session
     spark = (
         SparkSession.builder
         .appName("TripClick-Streaming-to-Silver")
-        .config("spark.sql.streaming.checkpointLocation", "/tmp/checkpoint/silver")
+        .config("spark.sql.streaming.checkpointLocation", checkpoint_path)
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")
 
     print(f"[INFO] Kafka brokers: {kafka_brokers}")
     print(f"[INFO] Silver path: {silver_path}")
+    print(f"[INFO] Checkpoint path: {checkpoint_path}")
 
     # -----------------------
     # Kafka Streaming Read
@@ -138,10 +140,10 @@ def main():
         .format("parquet")
         .outputMode("append")
         .option("path", silver_path)
-        .option("checkpointLocation", "/tmp/checkpoint/silver")
+        .option("checkpointLocation", checkpoint_path)
         .partitionBy("event_date")
         .trigger(processingTime="30 seconds")  # 30초마다 마이크로배치
-        .start()
+        .start() # .maxRecordsPerFile()
     )
 
     print("[INFO] Streaming query started. Running for 1 hour...")

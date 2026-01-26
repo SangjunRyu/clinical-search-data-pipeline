@@ -34,8 +34,8 @@ def load_config():
     """환경변수에서 설정 로드"""
     return {
         "s3": {
-            "silver_path": os.getenv("S3_SILVER_PATH", "s3a://tripclick-lake/silver/"),
-            "gold_path": os.getenv("S3_GOLD_PATH", "s3a://tripclick-lake/gold/"),
+            "silver_path": os.getenv("S3_SILVER_PATH", "s3a://tripclick-lake-sangjun/silver/"),
+            "gold_path": os.getenv("S3_GOLD_PATH", "s3a://tripclick-lake-sangjun/gold/"),
         }
     }
 
