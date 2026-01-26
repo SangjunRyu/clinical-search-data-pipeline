@@ -65,8 +65,8 @@ clinical-search-data-pipeline/
 │   ├── Dockerfile
 │   └── requirements.txt
 │
-├── gold/                         # Analytics Mart 레이어 (서빙)
-│   ├── gold.md                   # Analytics Mart 상세 문서
+├── mart/                         # Analytics Mart 레이어 (서빙)
+│   ├── mart.md                   # Analytics Mart 상세 문서
 │   ├── docker-compose.yaml       # PostgreSQL + Superset 통합 구성
 │   ├── postgres/                 # PostgreSQL 설정
 │   │   └── init/                 # 초기화 SQL
