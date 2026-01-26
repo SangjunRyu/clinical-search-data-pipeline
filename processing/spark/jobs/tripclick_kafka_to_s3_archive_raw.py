@@ -10,22 +10,22 @@ DEFAULT_ARGS = {
 }
 
 with DAG(
-    dag_id="tripclick_kafka_to_s3_bronze",
-    description="Kafka TripClick logs -> S3 Bronze via Spark batch",
+    dag_id="tripclick_kafka_to_s3_archive_raw",
+    description="Kafka TripClick logs -> S3 Archive Raw via Spark batch",
     default_args=DEFAULT_ARGS,
     start_date=datetime(2026, 1, 19),
-    schedule_interval=None,   # 🔥 수동 실행 (안정화 후 @daily 가능)
+    schedule_interval=None,   # 수동 실행 (안정화 후 @daily 가능)
     catchup=False,
-    tags=["tripclick", "kafka", "spark", "bronze"],
+    tags=["tripclick", "kafka", "spark", "archive_raw"],
 ) as dag:
 
-    kafka_to_s3_bronze = SparkSubmitOperator(
-        task_id="kafka_to_s3_bronze",
-        application="/opt/spark/jobs/kafka_to_s3_bronze.py",
-        name="kafka-to-s3-bronze",
+    kafka_to_s3_archive_raw = SparkSubmitOperator(
+        task_id="kafka_to_s3_archive_raw",
+        application="/opt/spark/jobs/kafka_to_s3_archive_raw.py",
+        name="kafka-to-s3-archive-raw",
         conn_id="spark_default",
 
-        # 🔑 AWS Access Key → Spark에 환경변수로 전달
+        # AWS Access Key -> Spark에 환경변수로 전달
         env_vars={
             "AWS_ACCESS_KEY_ID": "{{ conn.aws_s3_conn.login }}",
             "AWS_SECRET_ACCESS_KEY": "{{ conn.aws_s3_conn.password }}",
@@ -46,4 +46,4 @@ with DAG(
         verbose=True,
     )
 
-    kafka_to_s3_bronze
+    kafka_to_s3_archive_raw

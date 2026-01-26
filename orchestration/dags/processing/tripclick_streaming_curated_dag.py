@@ -1,13 +1,13 @@
 """
-TripClick Batch Bronze DAG
+TripClick Streaming Curated Stream DAG
 
 - 목적:
-  Kafka/Raw Source → Bronze 배치 처리
+  Kafka → Curated Stream 스트리밍 처리 (1시간 실행)
 - 구성:
   - SSHOperator로 Spark 서버에서 직접 spark-submit 실행
 - 특징:
   - 네트워크 문제 없이 Spark 클러스터에서 직접 실행
-  - Client mode에서 Driver-Executor 통신 문제 해결
+  - 1시간 동안 실시간 데이터 처리 후 종료
 """
 
 from datetime import datetime, timedelta
@@ -25,7 +25,7 @@ from airflow.operators.empty import EmptyOperator
 DEFAULT_ARGS = {
     "owner": "data-engineer",
     "depends_on_past": False,
-    "retries": 1,
+    "retries": 0,  # Streaming job은 retry 안 함
     "retry_delay": timedelta(minutes=5),
 }
 
@@ -34,7 +34,7 @@ DEFAULT_ARGS = {
 # Airflow Variables & Connections
 # =========================
 KAFKA_BROKERS = Variable.get("KAFKA_BROKERS")
-S3_BRONZE_PATH = Variable.get("S3_BRONZE_PATH")
+S3_CURATED_STREAM_PATH = Variable.get("S3_CURATED_STREAM_PATH")
 
 # AWS 자격증명은 Connection에서 가져오기
 aws_conn = BaseHook.get_connection("aws_s3")
@@ -59,24 +59,24 @@ SPARK_PACKAGES = ",".join([
 # DAG Definition
 # =========================
 with DAG(
-    dag_id="tripclick_spark_bronze_batch",
-    description="TripClick Kafka/Raw → Bronze 배치 처리 DAG",
+    dag_id="tripclick_streaming_curated",
+    description="TripClick Kafka → Curated Stream 스트리밍 처리 DAG",
     default_args=DEFAULT_ARGS,
     start_date=datetime(2026, 1, 1),
     schedule_interval=None,  # 수동 실행 전용
     catchup=False,
-    tags=["tripclick", "batch", "bronze", "processing"],
+    tags=["tripclick", "streaming", "curated_stream", "processing"],
 ) as dag:
 
     start = EmptyOperator(task_id="start")
     end = EmptyOperator(task_id="end")
 
     # =========================
-    # Batch to Bronze (via SSH)
+    # Streaming to Curated Stream (via SSH)
     # =========================
     # Spark 서버의 Docker 컨테이너에서 직접 spark-submit 실행
-    batch_to_bronze = SSHOperator(
-        task_id="batch_to_bronze",
+    streaming_to_curated_stream = SSHOperator(
+        task_id="streaming_to_curated_stream",
         ssh_conn_id=SPARK_SSH_CONN_ID,
         command=f"""
 docker exec spark-master spark-submit \\
@@ -88,13 +88,13 @@ docker exec spark-master spark-submit \\
   --conf spark.hadoop.fs.s3a.endpoint=s3.ap-northeast-2.amazonaws.com \\
   --conf spark.executor.memory=1g \\
   --conf spark.driver.memory=1g \\
-  /opt/spark/jobs/batch_to_bronze.py
+  /opt/spark/jobs/streaming_to_curated_stream.py
 """,
-        cmd_timeout=1800,  # 30분 타임아웃
+        cmd_timeout=4200,  # 70분 타임아웃 (1시간 실행 + 여유)
         conn_timeout=30,
     )
 
     # =========================
     # Dependencies
     # =========================
-    start >> batch_to_bronze >> end
+    start >> streaming_to_curated_stream >> end

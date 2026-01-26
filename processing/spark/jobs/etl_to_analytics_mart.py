@@ -1,7 +1,7 @@
 """
-Spark ETL: Silver → Gold Layer
+Spark ETL: Curated Stream → Analytics Mart Layer
 
-Silver 데이터를 분석용 Gold 마트로 변환
+Curated Stream 데이터를 분석용 Analytics Mart로 변환
 - 세션 분석 마트
 - 일별 트래픽 마트
 - 임상 분야 마트
@@ -34,8 +34,8 @@ def load_config():
     """환경변수에서 설정 로드"""
     return {
         "s3": {
-            "silver_path": os.getenv("S3_SILVER_PATH", "s3a://tripclick-lake-sangjun/silver/"),
-            "gold_path": os.getenv("S3_GOLD_PATH", "s3a://tripclick-lake-sangjun/gold/"),
+            "curated_stream_path": os.getenv("S3_CURATED_STREAM_PATH", "s3a://tripclick-lake-sangjun/curated_stream/"),
+            "analytics_mart_path": os.getenv("S3_ANALYTICS_MART_PATH", "s3a://tripclick-lake-sangjun/analytics_mart/"),
         }
     }
 
@@ -45,29 +45,29 @@ def load_config():
 # =========================
 def main():
     config = load_config()
-    silver_path = config["s3"]["silver_path"]
-    gold_path = config["s3"]["gold_path"]
+    curated_stream_path = config["s3"]["curated_stream_path"]
+    analytics_mart_path = config["s3"]["analytics_mart_path"]
 
     # Spark Session
     spark = (
         SparkSession.builder
-        .appName("TripClick-ETL-to-Gold")
+        .appName("TripClick-ETL-to-AnalyticsMart")
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")
 
-    print(f"[INFO] Silver path: {silver_path}")
-    print(f"[INFO] Gold path: {gold_path}")
+    print(f"[INFO] Curated Stream path: {curated_stream_path}")
+    print(f"[INFO] Analytics Mart path: {analytics_mart_path}")
 
     # -----------------------
-    # Read Silver Data
+    # Read Curated Stream Data
     # -----------------------
-    silver_df = spark.read.parquet(silver_path)
-    total_count = silver_df.count()
-    print(f"[INFO] Silver records: {total_count}")
+    curated_df = spark.read.parquet(curated_stream_path)
+    total_count = curated_df.count()
+    print(f"[INFO] Curated Stream records: {total_count}")
 
     if total_count == 0:
-        print("[WARN] No records in Silver. Exiting.")
+        print("[WARN] No records in Curated Stream. Exiting.")
         spark.stop()
         return
 
@@ -77,7 +77,7 @@ def main():
     print("[INFO] Creating mart_session_analysis...")
 
     session_mart = (
-        silver_df
+        curated_df
         .groupBy("session_id", "event_date")
         .agg(
             count("*").alias("click_count"),
@@ -95,7 +95,7 @@ def main():
     )
 
     session_mart.write.mode("overwrite").partitionBy("event_date").parquet(
-        f"{gold_path}mart_session_analysis/"
+        f"{analytics_mart_path}mart_session_analysis/"
     )
     print(f"[INFO] mart_session_analysis: {session_mart.count()} records")
 
@@ -106,7 +106,7 @@ def main():
 
     # 피크 시간 계산을 위한 시간별 집계
     hourly_df = (
-        silver_df
+        curated_df
         .withColumn("hour", hour(col("event_ts")))
         .groupBy("event_date", "hour")
         .agg(count("*").alias("hourly_count"))
@@ -125,7 +125,7 @@ def main():
     )
 
     daily_mart = (
-        silver_df
+        curated_df
         .groupBy("event_date")
         .agg(
             count("*").alias("total_events"),
@@ -136,7 +136,7 @@ def main():
     )
 
     daily_mart.write.mode("overwrite").parquet(
-        f"{gold_path}mart_daily_traffic/"
+        f"{analytics_mart_path}mart_daily_traffic/"
     )
     print(f"[INFO] mart_daily_traffic: {daily_mart.count()} records")
 
@@ -147,7 +147,7 @@ def main():
 
     # ClinicalAreas 필드 파싱 (쉼표로 구분된 문자열)
     clinical_mart = (
-        silver_df
+        curated_df
         .filter(col("clinical_areas").isNotNull())
         .filter(col("clinical_areas") != "")
         .withColumn("clinical_area", explode(split(col("clinical_areas"), ",")))
@@ -161,7 +161,7 @@ def main():
     )
 
     clinical_mart.write.mode("overwrite").partitionBy("event_date").parquet(
-        f"{gold_path}mart_clinical_areas/"
+        f"{analytics_mart_path}mart_clinical_areas/"
     )
     print(f"[INFO] mart_clinical_areas: {clinical_mart.count()} records")
 
@@ -171,7 +171,7 @@ def main():
     print("[INFO] Creating mart_popular_documents...")
 
     popular_mart = (
-        silver_df
+        curated_df
         .groupBy("event_date", "document_id", "title")
         .agg(
             count("*").alias("view_count"),
@@ -181,14 +181,14 @@ def main():
     )
 
     popular_mart.write.mode("overwrite").partitionBy("event_date").parquet(
-        f"{gold_path}mart_popular_documents/"
+        f"{analytics_mart_path}mart_popular_documents/"
     )
     print(f"[INFO] mart_popular_documents: {popular_mart.count()} records")
 
     # -----------------------
     # Summary
     # -----------------------
-    print("[INFO] ETL to Gold completed successfully.")
+    print("[INFO] ETL to Analytics Mart completed successfully.")
     print(f"  - mart_session_analysis: {session_mart.count()} records")
     print(f"  - mart_daily_traffic: {daily_mart.count()} records")
     print(f"  - mart_clinical_areas: {clinical_mart.count()} records")

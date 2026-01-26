@@ -65,7 +65,7 @@ with DAG(
     # =========================
     trigger_streaming = TriggerDagRunOperator(
         task_id="trigger_streaming",
-        trigger_dag_id="tripclick_streaming_silver",
+        trigger_dag_id="tripclick_streaming_curated",
         wait_for_completion=True,
         poke_interval=30,
         execution_date="{{ ds }}",
@@ -78,7 +78,7 @@ with DAG(
     # =========================
     trigger_batch = TriggerDagRunOperator(
         task_id="trigger_batch",
-        trigger_dag_id="tripclick_batch_bronze",
+        trigger_dag_id="tripclick_spark_archive_raw_batch",
         wait_for_completion=True,
         poke_interval=30,
         execution_date="{{ ds }}",
@@ -87,11 +87,11 @@ with DAG(
     )
 
     # =========================
-    # Step 4: Mart - Gold ETL
+    # Step 4: Mart - Analytics Mart ETL
     # =========================
-    trigger_gold = TriggerDagRunOperator(
-        task_id="trigger_gold",
-        trigger_dag_id="tripclick_gold_etl",
+    trigger_analytics_mart = TriggerDagRunOperator(
+        task_id="trigger_analytics_mart",
+        trigger_dag_id="tripclick_analytics_mart_etl",
         wait_for_completion=True,
         poke_interval=30,
         execution_date="{{ ds }}",
@@ -120,7 +120,7 @@ with DAG(
         >> trigger_producer
         >> trigger_streaming
         >> trigger_batch
-        >> trigger_gold
+        >> trigger_analytics_mart
         >> trigger_load_postgres
         >> end
     )

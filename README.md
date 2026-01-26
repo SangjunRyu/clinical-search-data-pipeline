@@ -7,7 +7,7 @@ TripClick 임상 데이터 검색 로그를 처리하는 엔드-투-엔드 데�
 | 항목 | 내용 |
 |------|------|
 | 데이터 소스 | TripClick 임상 검색 로그 (JSON) |
-| 파이프라인 | Kafka → Spark → S3 (Bronze/Silver/Gold) |
+| 파이프라인 | Kafka → Spark → S3 (Archive Raw / Curated Stream / Analytics Mart) |
 | 아키텍처 | Lambda Architecture (배치 + 스트림) |
 | 인프라 | Docker Compose 기반 |
 | 시각화 | Apache Superset |
@@ -49,10 +49,10 @@ clinical-search-data-pipeline/
 │   ├── processing.md             # Processing 상세 문서
 │   ├── spark/                    # Spark 작업
 │   │   └── jobs/
-│   │       ├── streaming_to_silver.py   # 실시간 → Silver
-│   │       ├── batch_to_bronze.py       # 배치 → Bronze
-│   │       ├── etl_to_gold.py           # Silver → Gold 마트
-│   │       ├── load_to_postgres.py      # Gold → PostgreSQL
+│   │       ├── streaming_to_curated_stream.py   # 실시간 → Curated Stream
+│   │       ├── batch_to_archive_raw.py       # 배치 → Archive Raw
+│   │       ├── etl_to_analytics_mart.py     # Curated Stream → Analytics Mart
+│   │       ├── load_to_postgres.py      # Analytics Mart → PostgreSQL
 │   │       └── consumer_batch.py        # 분석용 (테스트)
 │   └── spark-compose.yaml        # Spark 클러스터
 │
@@ -65,8 +65,8 @@ clinical-search-data-pipeline/
 │   ├── Dockerfile
 │   └── requirements.txt
 │
-├── gold/                         # Gold Mart 레이어 (서빙)
-│   ├── gold.md                   # Gold 상세 문서
+├── gold/                         # Analytics Mart 레이어 (서빙)
+│   ├── gold.md                   # Analytics Mart 상세 문서
 │   ├── docker-compose.yaml       # PostgreSQL + Superset 통합 구성
 │   ├── postgres/                 # PostgreSQL 설정
 │   │   └── init/                 # 초기화 SQL
@@ -105,20 +105,20 @@ clinical-search-data-pipeline/
             ▼                                       ▼
     ┌───────────────┐                       ┌───────────────┐
     │ Spark Batch   │                       │Spark Streaming│
-    │ → S3 Bronze   │                       │ → S3 Silver   │
+    │ → S3 Archive Raw │                    │ → S3 Curated Stream│
     └───────┬───────┘                       └───────┬───────┘
             │                                       │
             └───────────────────┬───────────────────┘
                                 ▼
                     ┌───────────────────────┐
                     │     Spark ETL         │
-                    │     → S3 Gold         │
+                    │     → S3 Analytics Mart│
                     └───────────┬───────────┘
                                 │
                                 ▼
                     ┌───────────────────────┐
                     │     PostgreSQL        │
-                    │     (Gold Mart)       │
+                    │     (Analytics Mart)  │
                     └───────────┬───────────┘
                                 │
                                 ▼
@@ -136,9 +136,9 @@ clinical-search-data-pipeline/
 |--------|------|------|
 | Ingestion | [ingestion/ingestion.md](ingestion/ingestion.md) | Kafka Producer, 실시간 전송, dedup 키 |
 | Messaging | [messaging/messaging.md](messaging/messaging.md) | Kafka 클러스터, 브로커 구성, 리스너 설정 |
-| Processing | [processing/processing.md](processing/processing.md) | Spark Streaming/Batch, Bronze/Silver |
+| Processing | [processing/processing.md](processing/processing.md) | Spark Streaming/Batch, Archive Raw / Curated Stream |
 | Orchestration | [orchestration/orchestration.md](orchestration/orchestration.md) | Airflow DAG, Remote Docker API |
-| Gold | [gold/gold.md](gold/gold.md) | 데이터 마트, PostgreSQL, Superset |
+| Analytics Mart | [gold/gold.md](gold/gold.md) | 데이터 마트, PostgreSQL, Superset |
 | Infrastructure | [infrastructure/infrastructure.md](infrastructure/infrastructure.md) | Technical Architecture, EC2, Network |
 
 ---
@@ -147,9 +147,9 @@ clinical-search-data-pipeline/
 
 | 레이어 | 경로 | 설명 |
 |--------|------|------|
-| **Bronze** | `s3://tripclick-lake/bronze/` | 원시 데이터, Kafka 메타데이터 포함, 중복 허용 |
-| **Silver** | `s3://tripclick-lake/silver/` | 정제 데이터, dedup_key 기반 중복 제거 |
-| **Gold** | `s3://tripclick-lake/gold/` | 분석 마트, PostgreSQL + Superset 연동 |
+| **Archive Raw** | `s3://tripclick-lake-sangjun/archive_raw/` | 원시 데이터, Kafka 메타데이터 포함, 중복 허용 |
+| **Curated Stream** | `s3://tripclick-lake-sangjun/curated_stream/` | 정제 데이터, dedup_key 기반 중복 제거 |
+| **Analytics Mart** | `s3://tripclick-lake-sangjun/analytics_mart/` | 분석 마트, PostgreSQL + Superset 연동 |
 
 ---
 
@@ -157,13 +157,13 @@ clinical-search-data-pipeline/
 
 ```
 15:00 ─┬─▶ Producer 시작 (server0, server1) - 실시간 전송
-       └─▶ Spark Streaming 시작 - Kafka → Silver
+       └─▶ Spark Streaming 시작 - Kafka → Curated Stream
               ↓
 16:00 ─────▶ Producer/Streaming 종료
               ↓
-17:00 ─────▶ Spark Batch - Kafka 전체 → Bronze
+17:00 ─────▶ Spark Batch - Kafka 전체 → Archive Raw
               ↓
-18:00 ─────▶ Spark ETL - Silver → Gold → PostgreSQL
+18:00 ─────▶ Spark ETL - Curated Stream → Analytics Mart → PostgreSQL
               ↓
        ─────▶ 완료
 ```

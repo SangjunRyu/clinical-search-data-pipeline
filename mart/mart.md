@@ -1,5 +1,5 @@
 
-# Gold Layer
+# Analytics Mart Layer
 
 분석용 데이터 마트 및 시각화 레이어
 
@@ -7,22 +7,22 @@
 
 | 항목 | 내용 |
 |------|------|
-| 입력 | S3 Silver Layer (Parquet) |
+| 입력 | S3 Curated Stream Layer (Parquet) |
 | 출력 | PostgreSQL (마트 테이블) |
 | 시각화 | Apache Superset |
 | 목적 | 비즈니스 분석 및 대시보드 |
 
-> **Note**: Gold 레이어는 S3가 아닌 PostgreSQL 테이블로 직접 적재합니다. BI 도구(Superset) 연동 및 실시간 쿼리 성능을 위해 RDB를 선택했습니다.
+> **Note**: Analytics Mart 레이어는 S3가 아닌 PostgreSQL 테이블로 직접 적재합니다. BI 도구(Superset) 연동 및 실시간 쿼리 성능을 위해 RDB를 선택했습니다.
 
 ---
 
-## Hot/Cold 2계층 Gold 설계
+## Hot/Cold 2계층 Analytics Mart 설계
 
-본 프로젝트는 Kafka 기반 이벤트 스트림을 Spark Structured Streaming으로 처리하여 Silver 계층에서 중복 제거 및 스키마 정규화를 수행한 뒤, **Gold 계층에서는 Hot/Cold 2계층**으로 구성하여 "실시간성"과 "정합성"의 균형을 달성한다.
+본 프로젝트는 Kafka 기반 이벤트 스트림을 Spark Structured Streaming으로 처리하여 Curated Stream 계층에서 중복 제거 및 스키마 정규화를 수행한 뒤, **Analytics Mart 계층에서는 Hot/Cold 2계층**으로 구성하여 "실시간성"과 "정합성"의 균형을 달성한다.
 
 ### 왜 2계층인가?
 
-| 관점 | Hot Gold (Near Real-Time) | Cold Gold (Daily Batch) |
+| 관점 | Hot Analytics Mart (Near Real-Time) | Cold Analytics Mart (Daily Batch) |
 |------|---------------------------|-------------------------|
 | **Freshness** | 1~5분 지연 | T+1 (하루 1회) |
 | **역할** | "지금 상황" 모니터링/데모 | 최종 정합성/리포팅 기준 |
@@ -37,7 +37,7 @@
 │                    FRESHNESS SLA                                 │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  [Hot Gold]                      [Cold Gold]                     │
+│  [HOT ANALYTICS MART]            [COLD ANALYTICS MART]           │
 │  ────────────                    ────────────                    │
 │  • Freshness: 1~5분              • Freshness: T+1                │
 │  • 대상: 실시간 모니터링 지표    • 대상: 최종 정합성 데이터      │
@@ -55,25 +55,25 @@
 
 #### 1. Idempotency (재실행 안전성)
 
-- **Hot Gold**: PK 기반 `INSERT ... ON CONFLICT DO UPDATE` (Upsert)
+- **Hot Analytics Mart**: PK 기반 `INSERT ... ON CONFLICT DO UPDATE` (Upsert)
   - 동일 윈도우 재처리 시 동일 결과 보장
   - Spark Checkpoint로 exactly-once 시맨틱
-- **Cold Gold**: 전체 테이블 `TRUNCATE + INSERT` 또는 `mode("overwrite")`
+- **Cold Analytics Mart**: 전체 테이블 `TRUNCATE + INSERT` 또는 `mode("overwrite")`
   - 일배치 재실행 시 동일 결과
 
 #### 2. Late Event 처리
 
 ```
-Silver Watermark (10분)
+Curated Stream Watermark (10분)
     ↓
-Hot Gold: 최근 짧은 범위만 Near Real-Time 제공
+Hot Analytics Mart: 최근 짧은 범위만 Near Real-Time 제공
     ↓
-Cold Gold: Daily Batch로 전체 재집계 → 최종 정합성 보정
+Cold Analytics Mart: Daily Batch로 전체 재집계 → 최종 정합성 보정
 ```
 
-- Silver에서 10분 watermark로 1차 필터링
-- Hot Gold는 "대략적 최신 데이터" 제공 (일부 누락 허용)
-- Cold Gold가 매일 전체 재집계하여 late event 포함
+- Curated Stream에서 10분 watermark로 1차 필터링
+- Hot Analytics Mart는 "대략적 최신 데이터" 제공 (일부 누락 허용)
+- Cold Analytics Mart가 매일 전체 재집계하여 late event 포함
 
 #### 3. 부하/성능 절충
 
@@ -85,12 +85,12 @@ Cold Gold: Daily Batch로 전체 재집계 → 최종 정합성 보정
 
 #### 4. Reconciliation (정합성 보정)
 
-- 매일 Cold Gold 배치가 Hot Gold 범위를 포함하여 재집계
-- Hot Gold의 "대략적 값"을 Cold Gold가 "정답"으로 덮어씀
+- 매일 Cold Analytics Mart 배치가 Hot Analytics Mart 범위를 포함하여 재집계
+- Hot Analytics Mart의 "대략적 값"을 Cold Analytics Mart가 "정답"으로 덮어씀
 
 #### 5. Failure/Retry
 
-- Spark Checkpoint 위치: S3 (`s3a://tripclick-lake/checkpoint/gold_realtime/`)
+- Spark Checkpoint 위치: S3 (`s3a://tripclick-lake-sangjun/checkpoint/analytics_mart_realtime/`)
 - 재시작 시 마지막 처리 offset부터 재개
 - DAG 실패 시 Airflow retry 정책 적용
 
@@ -100,11 +100,12 @@ Cold Gold: Daily Batch로 전체 재집계 → 최종 정합성 보정
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                              GOLD LAYER                                       │
+│                         ANALYTICS MART LAYER                                  │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                               │
 │  ┌─────────────┐                                                              │
-│  │  S3 Silver  │                                                              │
+│  │ S3 Curated  │                                                              │
+│  │  Stream     │                                                              │
 │  │  (Parquet)  │                                                              │
 │  └──────┬──────┘                                                              │
 │         │                                                                     │
@@ -121,9 +122,9 @@ Cold Gold: Daily Batch로 전체 재집계 → 최종 정합성 보정
 │             │                           │                             │       │
 │             ▼                           ▼                             │       │
 │  ┌─────────────────────────────────────────────────────────────┐      │       │
-│  │                     PostgreSQL (Gold Mart)                   │      │       │
+│  │                     PostgreSQL (Analytics Mart)              │      │       │
 │  ├─────────────────────────────┬───────────────────────────────┤      │       │
-│  │      [HOT GOLD]             │        [COLD GOLD]            │      │       │
+│  │  [HOT ANALYTICS MART]       │    [COLD ANALYTICS MART]      │      │       │
 │  │   Near Real-Time (1~5분)    │      Daily Batch (T+1)        │      │       │
 │  │ ─────────────────────────── │ ───────────────────────────── │      │       │
 │  │ mart_realtime_traffic_min   │ mart_session_analysis         │      │       │
@@ -158,15 +159,15 @@ gold/
 
 # ETL 코드는 processing 레이어에 위치 (Spark 서버에서 SSHOperator로 실행)
 processing/spark/jobs/
-├── etl_to_gold.py          # Silver → PostgreSQL 마트 적재
-└── load_to_postgres.py     # Silver → PostgreSQL 마트 적재 (대안)
+├── etl_to_analytics_mart.py          # Curated Stream → PostgreSQL 마트 적재
+└── load_to_postgres.py     # Curated Stream → PostgreSQL 마트 적재 (대안)
 ```
 
 ---
 
 ## 데이터 마트 정의
 
-### Hot Gold (Near Real-Time) 마트
+### Hot Analytics Mart (Near Real-Time) 마트
 
 #### 1. 실시간 트래픽 마트 (`mart_realtime_traffic_minute`)
 
@@ -237,7 +238,7 @@ processing/spark/jobs/
 
 ---
 
-### Cold Gold (Daily Batch) 마트
+### Cold Analytics Mart (Daily Batch) 마트
 
 #### 1. 세션 분석 마트 (`mart_session_analysis`)
 
@@ -294,15 +295,15 @@ processing/spark/jobs/
 
 Airflow SSHOperator를 통해 Spark 서버에서 직접 실행됩니다.
 
-### etl_to_gold.py
+### etl_to_analytics_mart.py
 
-Silver 데이터를 집계하여 PostgreSQL 마트 테이블로 적재
+Curated Stream 데이터를 집계하여 PostgreSQL 마트 테이블로 적재
 
 ```python
 # 주요 변환 로직
 # 1. 세션 분석 마트
 session_mart = (
-    silver_df
+    curated_df
     .groupBy("session_id", "event_date")
     .agg(
         count("*").alias("click_count"),
@@ -314,7 +315,7 @@ session_mart = (
 
 # 2. 일별 트래픽 마트
 daily_mart = (
-    silver_df
+    curated_df
     .groupBy("event_date")
     .agg(
         count("*").alias("total_events"),
@@ -326,7 +327,7 @@ daily_mart = (
 
 ### load_to_postgres.py
 
-Silver 데이터를 PostgreSQL 마트 테이블에 적재 (JDBC)
+Curated Stream 데이터를 PostgreSQL 마트 테이블에 적재 (JDBC)
 
 ```python
 # JDBC를 통한 PostgreSQL 적재
@@ -443,7 +444,7 @@ superset:
 
 ### Superset Database 연결
 
-Superset UI에서 PostgreSQL Gold DB 연결:
+Superset UI에서 PostgreSQL Analytics Mart DB 연결:
 
 ```
 Database: PostgreSQL
@@ -489,7 +490,7 @@ docker-compose up -d
 
 # 2. ETL 실행 (processing 서버의 Spark에서 실행)
 # Airflow DAG 또는 수동 실행
-spark-submit /opt/spark/jobs/etl_to_gold.py
+spark-submit /opt/spark/jobs/etl_to_analytics_mart.py
 spark-submit /opt/spark/jobs/load_to_postgres.py
 
 # 3. Superset 접속
@@ -504,20 +505,20 @@ spark-submit /opt/spark/jobs/load_to_postgres.py
 
 | DAG ID | 유형 | 스케줄 | 역할 |
 |--------|------|--------|------|
-| `tripclick_gold_etl` | Cold | 수동/Daily | Silver → S3 Gold 집계 |
-| `tripclick_load_postgres` | Cold | 수동/Daily | S3 Gold → PostgreSQL 적재 |
-| `tripclick_gold_realtime` | Hot | 수동 (장기 실행) | Silver 스트리밍 → PostgreSQL 실시간 마트 |
+| `tripclick_analytics_mart_etl` | Cold | 수동/Daily | Curated Stream → S3 Analytics Mart 집계 |
+| `tripclick_load_postgres` | Cold | 수동/Daily | S3 Analytics Mart → PostgreSQL 적재 |
+| `tripclick_analytics_mart_realtime` | Hot | 수동 (장기 실행) | Curated Stream 스트리밍 → PostgreSQL 실시간 마트 |
 
 ---
 
 ## TODO
 
-- [x] Spark ETL 코드 작성 (etl_to_gold.py)
+- [x] Spark ETL 코드 작성 (etl_to_analytics_mart.py)
 - [x] PostgreSQL 적재 코드 작성 (load_to_postgres.py)
 - [x] 자동화 스케줄링 (Airflow SSHOperator 연동)
-- [x] Hot/Cold 2계층 Gold 설계
-- [x] Hot Gold 테이블 스키마 정의
-- [x] Near Real-Time Spark Job 작성 (streaming_to_gold_realtime.py)
-- [x] Hot Gold DAG 작성 (tripclick_gold_realtime_dag.py)
+- [x] Hot/Cold 2계층 Analytics Mart 설계
+- [x] Hot Analytics Mart 테이블 스키마 정의
+- [x] Near Real-Time Spark Job 작성 (streaming_to_analytics_mart_realtime.py)
+- [x] Hot Analytics Mart DAG 작성 (tripclick_analytics_mart_realtime_dag.py)
 - [ ] Superset 대시보드 템플릿
 - [ ] 데이터 품질 검증 로직

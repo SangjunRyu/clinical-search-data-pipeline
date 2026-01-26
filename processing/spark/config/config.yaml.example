@@ -13,8 +13,8 @@ kafka:
     - <KAFKA_BROKER_IP>:9094
 
 s3:
-  bronze_path: "s3a://tripclick-lake/bronze/"
-  silver_path: "s3a://tripclick-lake/silver/"
+  archive_raw_path: "s3a://tripclick-lake/archive_raw/"
+  curated_stream_path: "s3a://tripclick-lake/curated_stream/"
 
 # AWS 자격증명 (환경변수 사용 권장)
 # aws:

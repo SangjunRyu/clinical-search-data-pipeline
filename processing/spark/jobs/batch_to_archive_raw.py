@@ -1,7 +1,7 @@
 """
-Spark Batch Job: Kafka → S3 Bronze Layer
+Spark Batch Job: Kafka → S3 Archive Raw Layer
 
-전체 Kafka 데이터를 배치로 읽어 S3 Bronze에 저장
+전체 Kafka 데이터를 배치로 읽어 S3 Archive Raw에 저장
 - 일배치로 실행 (Daily)
 - 전체 offset 읽기 (earliest → latest)
 - 파티션: event_date 기준
@@ -30,7 +30,7 @@ def load_config(path="/opt/spark/config/config.yaml"):
     """설정 파일 로드 (환경변수 오버라이드 지원)"""
     config = {
         "kafka": {"brokers": ["localhost:9092"]},
-        "s3": {"bronze_path": "s3a://tripclick-lake/bronze/"}
+        "s3": {"archive_raw_path": "s3a://tripclick-lake-sangjun/archive_raw/"}
     }
 
     if os.path.exists(path):
@@ -40,8 +40,8 @@ def load_config(path="/opt/spark/config/config.yaml"):
     # 환경변수 오버라이드
     if os.getenv("KAFKA_BROKERS"):
         config["kafka"]["brokers"] = os.getenv("KAFKA_BROKERS").split(",")
-    if os.getenv("S3_BRONZE_PATH"):
-        config["s3"]["bronze_path"] = os.getenv("S3_BRONZE_PATH")
+    if os.getenv("S3_ARCHIVE_RAW_PATH"):
+        config["s3"]["archive_raw_path"] = os.getenv("S3_ARCHIVE_RAW_PATH")
 
     return config
 
@@ -71,18 +71,18 @@ TRIPCLICK_SCHEMA = StructType([
 def main():
     config = load_config()
     kafka_brokers = ",".join(config["kafka"]["brokers"])
-    bronze_path = config["s3"]["bronze_path"]
+    archive_raw_path = config["s3"]["archive_raw_path"]
 
     # Spark Session
     spark = (
         SparkSession.builder
-        .appName("TripClick-Batch-to-Bronze")
+        .appName("TripClick-Batch-to-ArchiveRaw")
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")
 
     print(f"[INFO] Kafka brokers: {kafka_brokers}")
-    print(f"[INFO] Bronze path: {bronze_path}")
+    print(f"[INFO] Archive Raw path: {archive_raw_path}")
 
     # -----------------------
     # Kafka Batch Read (전체)
@@ -146,25 +146,25 @@ def main():
     )
 
     # -----------------------
-    # Write to S3 Bronze (Parquet)
+    # Write to S3 Archive Raw (Parquet)
     # -----------------------
-    print(f"[INFO] Writing to Bronze: {bronze_path}")
+    print(f"[INFO] Writing to Archive Raw: {archive_raw_path}")
 
     (
         parsed_df
         .write
         .mode("append")  # 기존 데이터에 추가
         .partitionBy("event_date")
-        .parquet(bronze_path)
+        .parquet(archive_raw_path)
     )
 
-    print(f"[INFO] Successfully wrote {total_count} records to Bronze.")
+    print(f"[INFO] Successfully wrote {total_count} records to Archive Raw.")
 
     # -----------------------
     # 검증
     # -----------------------
-    verify_df = spark.read.parquet(bronze_path)
-    print(f"[INFO] Bronze total records: {verify_df.count()}")
+    verify_df = spark.read.parquet(archive_raw_path)
+    print(f"[INFO] Archive Raw total records: {verify_df.count()}")
     verify_df.printSchema()
     verify_df.show(5, truncate=False)
 

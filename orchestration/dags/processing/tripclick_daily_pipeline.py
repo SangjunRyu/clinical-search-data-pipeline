@@ -3,7 +3,7 @@ TripClick Daily Pipeline DAG
 
 - Ingestion: Remote Docker Producer
 - Processing: Spark Streaming / Batch
-- Storage: S3 Bronze / Silver / Gold
+- Storage: S3 Archive Raw / Curated Stream / Analytics Mart
 """
 
 from datetime import datetime, timedelta
@@ -35,9 +35,9 @@ DEFAULT_ARGS = {
 # =========================
 KAFKA_BROKERS = Variable.get("KAFKA_BROKERS")
 
-S3_BRONZE_PATH = Variable.get("S3_BRONZE_PATH")
-S3_SILVER_PATH = Variable.get("S3_SILVER_PATH")
-S3_GOLD_PATH = Variable.get("S3_GOLD_PATH")
+S3_ARCHIVE_RAW_PATH = Variable.get("S3_ARCHIVE_RAW_PATH")
+S3_CURATED_STREAM_PATH = Variable.get("S3_CURATED_STREAM_PATH")
+S3_ANALYTICS_MART_PATH = Variable.get("S3_ANALYTICS_MART_PATH")
 
 WEBSERVER_INGESTION_PATH = Variable.get("WEBSERVER_INGESTION_PATH")
 
@@ -54,7 +54,7 @@ SPARK_CONN_ID = "spark_cluster"
 # =========================
 with DAG(
     dag_id="tripclick_daily_pipeline",
-    description="TripClick 전체 데이터 파이프라인 (Ingestion → Processing → Gold)",
+    description="TripClick 전체 데이터 파이프라인 (Ingestion → Processing → Analytics Mart)",
     default_args=DEFAULT_ARGS,
     start_date=datetime(2026, 1, 1),
     schedule_interval="0 15 * * *",
@@ -138,46 +138,46 @@ with DAG(
     # =========================
     with TaskGroup("processing", tooltip="Spark Processing") as processing_group:
 
-        streaming_to_silver = SparkSubmitOperator(
-            task_id="streaming_to_silver",
-            application="/opt/spark/jobs/streaming_to_silver.py",
+        streaming_to_curated_stream = SparkSubmitOperator(
+            task_id="streaming_to_curated_stream",
+            application="/opt/spark/jobs/streaming_to_curated_stream.py",
             conn_id=SPARK_CONN_ID,
             env_vars={
                 "KAFKA_BROKERS": KAFKA_BROKERS,
-                "S3_SILVER_PATH": S3_SILVER_PATH,
+                "S3_CURATED_STREAM_PATH": S3_CURATED_STREAM_PATH,
                 "AWS_ACCESS_KEY_ID": "{{ conn.aws_s3.login }}",
                 "AWS_SECRET_ACCESS_KEY": "{{ conn.aws_s3.password }}",
             },
             verbose=True,
         )
 
-        batch_to_bronze = SparkSubmitOperator(
-            task_id="batch_to_bronze",
-            application="/opt/spark/jobs/batch_to_bronze.py",
+        batch_to_archive_raw = SparkSubmitOperator(
+            task_id="batch_to_archive_raw",
+            application="/opt/spark/jobs/batch_to_archive_raw.py",
             conn_id=SPARK_CONN_ID,
             env_vars={
                 "KAFKA_BROKERS": KAFKA_BROKERS,
-                "S3_BRONZE_PATH": S3_BRONZE_PATH,
+                "S3_ARCHIVE_RAW_PATH": S3_ARCHIVE_RAW_PATH,
                 "AWS_ACCESS_KEY_ID": "{{ conn.aws_s3.login }}",
                 "AWS_SECRET_ACCESS_KEY": "{{ conn.aws_s3.password }}",
             },
             verbose=True,
         )
 
-        streaming_to_silver >> batch_to_bronze
+        streaming_to_curated_stream >> batch_to_archive_raw
 
     # =========================
-    # Gold ETL
+    # Analytics Mart ETL
     # =========================
-    with TaskGroup("gold_etl", tooltip="Gold Mart 생성") as gold_group:
+    with TaskGroup("analytics_mart_etl", tooltip="Analytics Mart 생성") as mart_group:
 
-        etl_to_gold = SparkSubmitOperator(
-            task_id="etl_to_gold",
-            application="/opt/spark/jobs/etl_to_gold.py",
+        etl_to_analytics_mart = SparkSubmitOperator(
+            task_id="etl_to_analytics_mart",
+            application="/opt/spark/jobs/etl_to_analytics_mart.py",
             conn_id=SPARK_CONN_ID,
             env_vars={
-                "S3_SILVER_PATH": S3_SILVER_PATH,
-                "S3_GOLD_PATH": S3_GOLD_PATH,
+                "S3_CURATED_STREAM_PATH": S3_CURATED_STREAM_PATH,
+                "S3_ANALYTICS_MART_PATH": S3_ANALYTICS_MART_PATH,
                 "AWS_ACCESS_KEY_ID": "{{ conn.aws_s3.login }}",
                 "AWS_SECRET_ACCESS_KEY": "{{ conn.aws_s3.password }}",
             },
@@ -189,7 +189,7 @@ with DAG(
             application="/opt/spark/jobs/load_to_postgres.py",
             conn_id=SPARK_CONN_ID,
             env_vars={
-                "S3_GOLD_PATH": S3_GOLD_PATH,
+                "S3_ANALYTICS_MART_PATH": S3_ANALYTICS_MART_PATH,
                 "POSTGRES_HOST": "{{ conn.postgres_gold.host }}",
                 "POSTGRES_PORT": "{{ conn.postgres_gold.port }}",
                 "POSTGRES_DB": "{{ conn.postgres_gold.schema }}",
@@ -199,15 +199,15 @@ with DAG(
             verbose=True,
         )
 
-        etl_to_gold >> load_to_postgres
+        etl_to_analytics_mart >> load_to_postgres
 
     # =========================
     # Dependencies
     # =========================
     start >> ingestion_group
-    start >> streaming_to_silver
+    start >> streaming_to_curated_stream
 
-    ingestion_group >> batch_to_bronze
-    streaming_to_silver >> batch_to_bronze
+    ingestion_group >> batch_to_archive_raw
+    streaming_to_curated_stream >> batch_to_archive_raw
 
-    batch_to_bronze >> gold_group >> end
+    batch_to_archive_raw >> mart_group >> end

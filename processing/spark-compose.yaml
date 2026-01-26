@@ -30,8 +30,8 @@ services:
       - SPARK_SSL_ENABLED=no
       # Kafka / S3 설정 (환경변수)
       - KAFKA_BROKERS=${KAFKA_BROKERS:-localhost:9092}
-      - S3_BRONZE_PATH=${S3_BRONZE_PATH:-s3a://tripclick-lake/bronze/}
-      - S3_SILVER_PATH=${S3_SILVER_PATH:-s3a://tripclick-lake/silver/}
+      - S3_ARCHIVE_RAW_PATH=${S3_ARCHIVE_RAW_PATH:-s3a://tripclick-lake-sangjun/archive_raw/}
+      - S3_CURATED_STREAM_PATH=${S3_CURATED_STREAM_PATH:-s3a://tripclick-lake-sangjun/curated_stream/}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
     ports:
@@ -67,8 +67,8 @@ services:
       - SPARK_SSL_ENABLED=no
       # Kafka / S3 설정
       - KAFKA_BROKERS=${KAFKA_BROKERS:-localhost:9092}
-      - S3_BRONZE_PATH=${S3_BRONZE_PATH:-s3a://tripclick-lake/bronze/}
-      - S3_SILVER_PATH=${S3_SILVER_PATH:-s3a://tripclick-lake/silver/}
+      - S3_ARCHIVE_RAW_PATH=${S3_ARCHIVE_RAW_PATH:-s3a://tripclick-lake-sangjun/archive_raw/}
+      - S3_CURATED_STREAM_PATH=${S3_CURATED_STREAM_PATH:-s3a://tripclick-lake-sangjun/curated_stream/}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
     ports:
@@ -103,8 +103,8 @@ services:
       - SPARK_SSL_ENABLED=no
       # Kafka / S3 설정
       - KAFKA_BROKERS=${KAFKA_BROKERS:-localhost:9092}
-      - S3_BRONZE_PATH=${S3_BRONZE_PATH:-s3a://tripclick-lake/bronze/}
-      - S3_SILVER_PATH=${S3_SILVER_PATH:-s3a://tripclick-lake/silver/}
+      - S3_ARCHIVE_RAW_PATH=${S3_ARCHIVE_RAW_PATH:-s3a://tripclick-lake-sangjun/archive_raw/}
+      - S3_CURATED_STREAM_PATH=${S3_CURATED_STREAM_PATH:-s3a://tripclick-lake-sangjun/curated_stream/}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
     ports:

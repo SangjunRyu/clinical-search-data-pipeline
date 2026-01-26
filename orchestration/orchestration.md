@@ -29,9 +29,9 @@
 │  │  │  15:00 ─┬─▶ DockerOperator (Producer server0)    │   │   │
 │  │  │         └─▶ DockerOperator (Producer server1)    │   │   │
 │  │  │               ↓                                   │   │   │
-│  │  │  15:00 ────▶ SSHOperator (Streaming → Silver)    │   │   │
+│  │  │  15:00 ────▶ SSHOperator (Streaming → Curated Stream)    │   │   │
 │  │  │               ↓                                   │   │   │
-│  │  │  17:00 ────▶ SSHOperator (Batch → Bronze)        │   │   │
+│  │  │  17:00 ────▶ SSHOperator (Batch → Archive Raw)        │   │   │
 │  │  │               ↓                                   │   │   │
 │  │  │  18:00 ────▶ SSHOperator (ETL → PostgreSQL)      │   │   │
 │  │  └──────────────────────────────────────────────────┘   │   │
@@ -89,13 +89,13 @@ orchestration/
 │     │         │                                                │
 │     ├──▶ producer_server1 (DockerOperator)                    │
 │     │         │                                                │
-│     └──▶ streaming_to_silver (SSHOperator)                    │
+│     └──▶ streaming_to_curated_stream (SSHOperator)                    │
 │                   │                                            │
 │  [17:00]          ▼                                            │
-│     └──▶ batch_to_bronze (SSHOperator)                        │
+│     └──▶ batch_to_archive_raw (SSHOperator)                        │
 │                   │                                            │
 │  [18:00]          ▼                                            │
-│     └──▶ etl_to_gold (SSHOperator)                            │
+│     └──▶ etl_to_analytics_mart (SSHOperator)                            │
 │                   │                                            │
 │                   ▼                                            │
 │     └──▶ load_to_postgres (SSHOperator)                       │

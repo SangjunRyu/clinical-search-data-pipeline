@@ -48,7 +48,7 @@ TripClick 임상 데이터 파이프라인 인프라 기술 아키텍처 문서
 │  │                      │                        │                          │   │
 │  │                      ▼                        │                          │   │
 │  │   ┌─────────────────────────────────────┐     │                          │   │
-│  │   │    Gold Layer (Data Mart)           │     │                          │   │
+│  │   │    Analytics Mart Layer (Data Mart)           │     │                          │   │
 │  │   │  ┌─────────┐  ┌─────────┐           │     │                          │   │
 │  │   │  │PostgreSQL│  │ Superset│           │     │                          │   │
 │  │   │  │t3.small │  │         │           │     │                          │   │
@@ -60,9 +60,9 @@ TripClick 임상 데이터 파이프라인 인프라 기술 아키텍처 문서
 │                                                                             │   │
 │                         ┌─────────────────┐                                 │   │
 │                         │    S3 Bucket    │                                 │   │
-│                         │ tripclick-lake  │                                 │   │
-│                         │ /bronze/silver/ │                                 │   │
-│                         │ /gold/          │                                 │   │
+│                         │ tripclick-lake-sangjun  │                                 │   │
+│                         │ /archive_raw, /curated_stream/ │                                 │   │
+│                         │ /analytics_mart/          │                                 │   │
 │                         └─────────────────┘                                 │   │
 │                                                                             │   │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -79,9 +79,9 @@ TripClick 임상 데이터 파이프라인 인프라 기술 아키텍처 문서
 │                                                                     │
 │  DAGs:                                                              │
 │  ├─ tripclick_producer_realtime / batch                             │
-│  ├─ tripclick_streaming_silver                                      │
-│  ├─ tripclick_batch_bronze                                          │
-│  ├─ tripclick_gold_etl                                              │
+│  ├─ tripclick_streaming_curated                                      │
+│  ├─ tripclick_spark_archive_raw_batch                                          │
+│  ├─ tripclick_analytics_mart_etl                                              │
 │  ├─ tripclick_load_postgres                                         │
 │  └─ tripclick_daily_pipeline (Main Orchestrator)                    │
 └───────────────────────────────┬─────────────────────────────────────┘
@@ -106,7 +106,7 @@ TripClick 임상 데이터 파이프라인 인프라 기술 아키텍처 문서
             ▼                                       ▼
     ┌───────────────┐                       ┌───────────────┐
     │ Spark Batch   │                       │Spark Streaming│
-    │ → S3 Bronze   │                       │ → S3 Silver   │
+    │ → S3 Archive Raw   │                       │ → S3 Curated Stream   │
     │ (전체 적재)   │                       │ (dedup 처리)  │
     └───────┬───────┘                       └───────┬───────┘
             │                                       │
@@ -114,14 +114,14 @@ TripClick 임상 데이터 파이프라인 인프라 기술 아키텍처 문서
                                 ▼
                     ┌───────────────────────┐
                     │     Spark ETL         │
-                    │  Silver → PostgreSQL  │
+                    │  Curated Stream → PostgreSQL  │
                     │  (집계/마트 테이블)   │
                     └───────────┬───────────┘
                                 │
                                 ▼
                     ┌───────────────────────┐
                     │     PostgreSQL        │
-                    │     (Gold Mart)       │
+                    │     (Analytics Mart)       │
                     │  - mart_session       │
                     │  - mart_daily_traffic │
                     │  - mart_clinical_areas│
@@ -182,15 +182,15 @@ xxhash64(session_id | document_id | event_ts)
 |------|------|
 | 엔진 | Apache Spark 3.4.1 |
 | 구성 | Master 1, Worker 2 |
-| 출력 | S3 Bronze/Silver (Parquet) |
+| 출력 | S3 Archive Raw/Curated Stream (Parquet) |
 
 **Spark Jobs:**
 | Job | 입력 | 출력 | 처리 |
 |-----|------|------|------|
-| streaming_to_silver.py | Kafka Stream | S3 Silver | Watermark + dedup_key 중복 제거 |
-| batch_to_bronze.py | Kafka Batch | S3 Bronze | 전체 데이터 적재 (메타데이터 포함) |
-| etl_to_gold.py | S3 Silver | PostgreSQL | 집계/변환 후 마트 테이블 적재 |
-| load_to_postgres.py | S3 Silver | PostgreSQL | JDBC를 통한 마트 테이블 적재 |
+| streaming_to_curated_stream.py | Kafka Stream | S3 Curated Stream | Watermark + dedup_key 중복 제거 |
+| batch_to_archive_raw.py | Kafka Batch | S3 Archive Raw | 전체 데이터 적재 (메타데이터 포함) |
+| etl_to_analytics_mart.py | S3 Curated Stream | PostgreSQL | 집계/변환 후 마트 테이블 적재 |
+| load_to_postgres.py | S3 Curated Stream | PostgreSQL | JDBC를 통한 마트 테이블 적재 |
 
 ### 4. Orchestration Layer
 
@@ -205,10 +205,10 @@ xxhash64(session_id | document_id | event_ts)
 |--------|----------|------|
 | tripclick_producer_realtime | DockerOperator | 실시간 스트리밍 시뮬레이션 |
 | tripclick_producer_batch | DockerOperator | 백필/일괄 전송 |
-| tripclick_streaming_silver | SSHOperator | Kafka → Silver |
-| tripclick_batch_bronze | SSHOperator | Kafka → Bronze |
-| tripclick_gold_etl | SSHOperator | Silver → Gold 마트 생성 |
-| tripclick_load_postgres | SSHOperator | Gold → PostgreSQL 적재 |
+| tripclick_streaming_curated | SSHOperator | Kafka → Curated Stream |
+| tripclick_spark_archive_raw_batch | SSHOperator | Kafka → Archive Raw |
+| tripclick_analytics_mart_etl | SSHOperator | Curated Stream → Analytics Mart 마트 생성 |
+| tripclick_load_postgres | SSHOperator | Analytics Mart → PostgreSQL 적재 |
 | tripclick_daily_pipeline | TriggerDagRunOperator | 메인 오케스트레이션 |
 
 **SSHOperator 선택 이유:**
@@ -239,7 +239,7 @@ SparkSubmitOperator의 Client Mode 네트워크 문제로 인해 SSHOperator로 
 
 > **프로덕션 개선 방향**: Spark on Kubernetes + KubernetesPodOperator 권장
 
-### 5. Gold Layer (Data Mart & BI)
+### 5. Analytics Mart Layer (Data Mart & BI)
 
 | 항목 | 내용 |
 |------|------|
@@ -287,7 +287,7 @@ SparkSubmitOperator의 Client Mode 네트워크 문제로 인해 SSHOperator로 
 |------|----------|------|--------|-----|------|
 | Airflow Server | m5.large | 2 | 8GB | 16GB | EBS 8GB→16GB 증설 (space 부족) |
 
-### Gold Layer
+### Analytics Mart Layer
 
 | 서버 | 인스턴스 | vCPU | Memory | 용도 | 비고 |
 |------|----------|------|--------|------|------|
@@ -297,7 +297,7 @@ SparkSubmitOperator의 Client Mode 네트워크 문제로 인해 SSHOperator로 
 
 | 서비스 | 용도 | 경로 |
 |--------|------|------|
-| S3 (tripclick-lake) | 데이터 레이크 | /bronze, /silver |
+| S3 (tripclick-lake-sangjun) | 데이터 레이크 | /archive_raw, /curated_stream |
 
 ---
 
@@ -385,11 +385,11 @@ SparkSubmitOperator의 Client Mode 네트워크 문제로 인해 SSHOperator로 
 
 | 레이어 | 저장소 | 경로/테이블 | 설명 |
 |--------|--------|-------------|------|
-| **Bronze** | S3 | `s3://tripclick-lake/bronze/event_date=YYYY-MM-DD/` | 원시 데이터, Kafka 메타데이터 포함, 중복 허용 |
-| **Silver** | S3 | `s3://tripclick-lake/silver/event_date=YYYY-MM-DD/` | 정제 데이터, dedup_key 기반 중복 제거 |
-| **Gold** | PostgreSQL | `mart_*` 테이블 | 분석 마트, Superset 대시보드 연동 |
+| **Archive Raw** | S3 | `s3://tripclick-lake-sangjun/archive_raw/event_date=YYYY-MM-DD/` | 원시 데이터, Kafka 메타데이터 포함, 중복 허용 |
+| **Curated Stream** | S3 | `s3://tripclick-lake-sangjun/curated_stream/event_date=YYYY-MM-DD/` | 정제 데이터, dedup_key 기반 중복 제거 |
+| **Analytics Mart** | PostgreSQL | `mart_*` 테이블 | 분석 마트, Superset 대시보드 연동 |
 
-> **Note**: Gold 레이어는 S3가 아닌 PostgreSQL 테이블로 직접 적재합니다. BI 도구(Superset) 연동 및 실시간 쿼리 성능을 위해 RDB를 선택했습니다.
+> **Note**: Analytics Mart 레이어는 S3가 아닌 PostgreSQL 테이블로 직접 적재합니다. BI 도구(Superset) 연동 및 실시간 쿼리 성능을 위해 RDB를 선택했습니다.
 
 ---
 
@@ -397,13 +397,13 @@ SparkSubmitOperator의 Client Mode 네트워크 문제로 인해 SSHOperator로 
 
 ```
 15:00 ─┬─▶ Producer 시작 (server0, server1) - 실시간 전송
-       └─▶ Spark Streaming 시작 - Kafka → Silver (1시간)
+       └─▶ Spark Streaming 시작 - Kafka → Curated Stream (1시간)
               ↓
 16:00 ─────▶ Producer/Streaming 종료
               ↓
-17:00 ─────▶ Spark Batch - Kafka 전체 → Bronze
+17:00 ─────▶ Spark Batch - Kafka 전체 → Archive Raw
               ↓
-18:00 ─────▶ Spark ETL - Silver → PostgreSQL (마트 테이블 적재)
+18:00 ─────▶ Spark ETL - Curated Stream → PostgreSQL (마트 테이블 적재)
               ↓
        ─────▶ 완료 (Superset 대시보드 갱신)
 ```
@@ -417,9 +417,9 @@ SparkSubmitOperator의 Client Mode 네트워크 문제로 인해 SSHOperator로 
 | Key | 설명 | 예시 |
 |-----|------|------|
 | `KAFKA_BROKERS` | Kafka 브로커 주소 | `10.0.1.10:9092,10.0.1.10:9093,10.0.1.10:9094` |
-| `S3_BRONZE_PATH` | Bronze 레이어 경로 | `s3a://tripclick-lake/bronze/` |
-| `S3_SILVER_PATH` | Silver 레이어 경로 | `s3a://tripclick-lake/silver/` |
-| `S3_GOLD_PATH` | Gold 레이어 경로 | `s3a://tripclick-lake/gold/` |
+| `S3_ARCHIVE_RAW_PATH` | Archive Raw 레이어 경로 | `s3a://tripclick-lake-sangjun/archive_raw/` |
+| `S3_CURATED_STREAM_PATH` | Curated Stream 레이어 경로 | `s3a://tripclick-lake-sangjun/curated_stream/` |
+| `S3_ANALYTICS_MART_PATH` | Analytics Mart 레이어 경로 | `s3a://tripclick-lake-sangjun/analytics_mart/` |
 | `WEBSERVER_INGESTION_PATH` | 웹서버 홈 경로 | `/home/ubuntu` |
 
 ### Connections
@@ -430,7 +430,7 @@ SparkSubmitOperator의 Client Mode 네트워크 문제로 인해 SSHOperator로 
 | `docker_server1` | Docker | WebServer 1 Docker Remote API |
 | `spark_ssh` | SSH | Spark 서버 SSH 연결 (SSHOperator용) |
 | `aws_s3` | AWS | S3 접근용 IAM 자격증명 |
-| `postgres_gold` | Postgres | Gold 레이어 PostgreSQL |
+| `postgres_gold` | Postgres | Analytics Mart 레이어 PostgreSQL |
 
 ---
 

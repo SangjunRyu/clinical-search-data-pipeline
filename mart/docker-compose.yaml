@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   # =========================
-  # Gold Layer PostgreSQL
+  # Analytics Mart PostgreSQL
   # =========================
   postgres-gold:
     image: postgres:15

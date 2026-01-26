@@ -22,7 +22,7 @@ gold
 Gold.md는 “RDB 적재로 실시간 쿼리 성능”을 말하지만, 실제 파이프라인은 Silver 집계 후 적재(배치성 ETL) 흐름이 주로 서술돼 있어 약간 논리가 점프해.
 → 여기서 **Gold의 ‘Freshness 요구사항’(예: T+1이면 충분 vs 5~10분 내 반영 필요)**을 명시하면 문서가 훨씬 단단해져.
 
-(B) tripclick_gold_dag vs tripclick_load_postgres 역할이 살짝 중복/혼선
+(B) tripclick_analytics_mart_dag vs tripclick_load_postgres 역할이 살짝 중복/혼선
 
 dags.md에는
 

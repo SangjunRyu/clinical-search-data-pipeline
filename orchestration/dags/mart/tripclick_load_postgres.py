@@ -2,7 +2,7 @@
 TripClick Load to PostgreSQL DAG
 
 - 목적:
-  Gold → PostgreSQL 적재
+  Analytics Mart → PostgreSQL 적재
 - 구성:
   - SSHOperator로 Spark 서버에서 직접 spark-submit 실행
 - 특징:
@@ -33,7 +33,7 @@ DEFAULT_ARGS = {
 # =========================
 # Airflow Variables & Connections
 # =========================
-S3_GOLD_PATH = Variable.get("S3_GOLD_PATH")
+S3_ANALYTICS_MART_PATH = Variable.get("S3_ANALYTICS_MART_PATH")
 
 # AWS 자격증명
 aws_conn = BaseHook.get_connection("aws_s3")
@@ -67,7 +67,7 @@ SPARK_PACKAGES = ",".join([
 # =========================
 with DAG(
     dag_id="tripclick_load_postgres",
-    description="TripClick Gold → PostgreSQL 적재 DAG",
+    description="TripClick Analytics Mart → PostgreSQL 적재 DAG",
     default_args=DEFAULT_ARGS,
     start_date=datetime(2026, 1, 1),
     schedule_interval=None,  # 수동 실행 전용
@@ -86,7 +86,7 @@ with DAG(
         task_id="load_to_postgres",
         ssh_conn_id=SPARK_SSH_CONN_ID,
         command=f"""
-docker exec -e S3_GOLD_PATH="{S3_GOLD_PATH}" \\
+docker exec -e S3_ANALYTICS_MART_PATH="{S3_ANALYTICS_MART_PATH}" \\
   -e POSTGRES_HOST="{POSTGRES_HOST}" \\
   -e POSTGRES_PORT="{POSTGRES_PORT}" \\
   -e POSTGRES_DB="{POSTGRES_DB}" \\

@@ -1,7 +1,7 @@
 """
-Spark Structured Streaming: Silver → PostgreSQL Gold (Near Real-Time)
+Spark Structured Streaming: Curated Stream → PostgreSQL Analytics Mart (Near Real-Time)
 
-Silver 데이터를 1~5분 마이크로배치로 읽어 Hot Gold 마트를 PostgreSQL에 적재
+Curated Stream 데이터를 1~5분 마이크로배치로 읽어 Hot Analytics Mart를 PostgreSQL에 적재
 - mart_realtime_traffic_minute: 분 단위 트래픽
 - mart_realtime_top_docs_1h: 최근 1시간 인기 문서 TOP 20
 - mart_realtime_clinical_trend_24h: 최근 24시간 임상영역 트렌드
@@ -35,10 +35,10 @@ def load_config():
     """환경변수에서 설정 로드"""
     return {
         "s3": {
-            "silver_path": os.getenv("S3_SILVER_PATH", "s3a://tripclick-lake-sangjun/silver/"),
+            "curated_stream_path": os.getenv("S3_CURATED_STREAM_PATH", "s3a://tripclick-lake-sangjun/curated_stream/"),
             "checkpoint_path": os.getenv(
                 "S3_CHECKPOINT_PATH",
-                "s3a://tripclick-lake-sangjun/checkpoint/gold_realtime/"
+                "s3a://tripclick-lake-sangjun/checkpoint/analytics_mart_realtime/"
             ),
         },
         "postgres": {
@@ -296,7 +296,7 @@ def process_anomaly_detection(batch_df: DataFrame, batch_id: int, config: dict):
 # =========================
 def main():
     config = load_config()
-    silver_path = config["s3"]["silver_path"]
+    curated_stream_path = config["s3"]["curated_stream_path"]
     checkpoint_base = config["s3"]["checkpoint_path"]
     trigger_interval = config["trigger_interval"]
     run_duration = config["run_duration_hours"] * 3600  # seconds
@@ -304,24 +304,24 @@ def main():
     # Spark Session
     spark = (
         SparkSession.builder
-        .appName("TripClick-Streaming-to-Gold-Realtime")
+        .appName("TripClick-Streaming-to-AnalyticsMart-Realtime")
         .config("spark.jars", "/opt/spark/jars/postgresql-42.6.0.jar")
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")
 
-    print(f"[INFO] Silver path: {silver_path}")
+    print(f"[INFO] Curated Stream path: {curated_stream_path}")
     print(f"[INFO] Checkpoint base: {checkpoint_base}")
     print(f"[INFO] Trigger interval: {trigger_interval}")
     print(f"[INFO] Run duration: {run_duration} seconds")
 
     # -----------------------
-    # Streaming Read from Silver (Parquet)
+    # Streaming Read from Curated Stream (Parquet)
     # -----------------------
-    silver_stream = (
+    curated_stream = (
         spark.readStream
         .format("parquet")
-        .option("path", silver_path)
+        .option("path", curated_stream_path)
         .option("maxFilesPerTrigger", 10)  # 배치당 최대 10파일
         .load()
     )
@@ -330,7 +330,7 @@ def main():
     # foreachBatch로 4개 마트 동시 처리
     # -----------------------
     def process_all_marts(batch_df: DataFrame, batch_id: int):
-        """모든 Hot Gold 마트를 한 번에 처리"""
+        """모든 Hot Analytics Mart를 한 번에 처리"""
         if batch_df.isEmpty():
             print(f"[INFO] Batch {batch_id} is empty, skipping all marts")
             return
@@ -360,9 +360,9 @@ def main():
     # Write Stream
     # -----------------------
     query = (
-        silver_stream.writeStream
+        curated_stream.writeStream
         .foreachBatch(process_all_marts)
-        .option("checkpointLocation", f"{checkpoint_base}gold_realtime_all/")
+        .option("checkpointLocation", f"{checkpoint_base}analytics_mart_realtime_all/")
         .trigger(processingTime=trigger_interval)
         .start()
     )
@@ -372,7 +372,7 @@ def main():
     # 지정된 시간 동안 실행
     query.awaitTermination(timeout=run_duration)
 
-    print("[INFO] Streaming to Gold Realtime completed.")
+    print("[INFO] Streaming to Analytics Mart Realtime completed.")
     spark.stop()
 
 

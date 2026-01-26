@@ -1,7 +1,7 @@
 """
-Spark Job: Gold → PostgreSQL
+Spark Job: Analytics Mart → PostgreSQL
 
-Gold 마트 데이터를 PostgreSQL에 적재 (Superset 시각화용)
+Analytics Mart 데이터를 PostgreSQL에 적재 (Superset 시각화용)
 """
 
 import os
@@ -15,7 +15,7 @@ def load_config():
     """환경변수에서 설정 로드"""
     return {
         "s3": {
-            "gold_path": os.getenv("S3_GOLD_PATH", "s3a://tripclick-lake/gold/"),
+            "analytics_mart_path": os.getenv("S3_ANALYTICS_MART_PATH", "s3a://tripclick-lake-sangjun/analytics_mart/"),
         },
         "postgres": {
             "host": os.getenv("POSTGRES_HOST", "localhost"),
@@ -56,7 +56,7 @@ def write_to_postgres(df, table_name, config):
 # =========================
 def main():
     config = load_config()
-    gold_path = config["s3"]["gold_path"]
+    analytics_mart_path = config["s3"]["analytics_mart_path"]
 
     # Spark Session
     spark = (
@@ -67,7 +67,7 @@ def main():
     )
     spark.sparkContext.setLogLevel("WARN")
 
-    print(f"[INFO] Gold path: {gold_path}")
+    print(f"[INFO] Analytics Mart path: {analytics_mart_path}")
     print(f"[INFO] PostgreSQL: {config['postgres']['host']}:{config['postgres']['port']}")
 
     # -----------------------
@@ -75,7 +75,7 @@ def main():
     # -----------------------
     print("[INFO] Loading mart_session_analysis...")
     try:
-        session_df = spark.read.parquet(f"{gold_path}mart_session_analysis/")
+        session_df = spark.read.parquet(f"{analytics_mart_path}mart_session_analysis/")
         write_to_postgres(session_df, "mart_session_analysis", config)
     except Exception as e:
         print(f"[WARN] mart_session_analysis failed: {e}")
@@ -85,7 +85,7 @@ def main():
     # -----------------------
     print("[INFO] Loading mart_daily_traffic...")
     try:
-        daily_df = spark.read.parquet(f"{gold_path}mart_daily_traffic/")
+        daily_df = spark.read.parquet(f"{analytics_mart_path}mart_daily_traffic/")
         write_to_postgres(daily_df, "mart_daily_traffic", config)
     except Exception as e:
         print(f"[WARN] mart_daily_traffic failed: {e}")
@@ -95,7 +95,7 @@ def main():
     # -----------------------
     print("[INFO] Loading mart_clinical_areas...")
     try:
-        clinical_df = spark.read.parquet(f"{gold_path}mart_clinical_areas/")
+        clinical_df = spark.read.parquet(f"{analytics_mart_path}mart_clinical_areas/")
         write_to_postgres(clinical_df, "mart_clinical_areas", config)
     except Exception as e:
         print(f"[WARN] mart_clinical_areas failed: {e}")
@@ -105,7 +105,7 @@ def main():
     # -----------------------
     print("[INFO] Loading mart_popular_documents...")
     try:
-        popular_df = spark.read.parquet(f"{gold_path}mart_popular_documents/")
+        popular_df = spark.read.parquet(f"{analytics_mart_path}mart_popular_documents/")
         write_to_postgres(popular_df, "mart_popular_documents", config)
     except Exception as e:
         print(f"[WARN] mart_popular_documents failed: {e}")

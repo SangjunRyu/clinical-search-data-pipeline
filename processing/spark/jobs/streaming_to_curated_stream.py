@@ -1,9 +1,10 @@
 """
-Spark Structured Streaming: Kafka → S3 Silver Layer
+Spark Structured Streaming: Kafka → S3 Curated Stream Layer
 
-실시간 스트리밍으로 Kafka 데이터를 읽어 dedup 처리 후 S3 Silver에 저장
+실시간 스트리밍으로 Kafka 데이터를 읽어 dedup 처리 후 S3 Curated Stream에 저장
 - Watermark 기반 중복 제거 (dedup_key 사용)
 - 1시간 실행 후 종료 (processingTime trigger)
+- 종료 후 Compaction: 작은 parquet 파일들을 event_date별 1개로 병합
 """
 
 import os
@@ -29,7 +30,7 @@ def load_config(path="/opt/spark/config/config.yaml"):
     """설정 파일 로드 (환경변수 오버라이드 지원)"""
     config = {
         "kafka": {"brokers": ["localhost:9092"]},
-        "s3": {"silver_path": "s3a://tripclick-lake/silver/"}
+        "s3": {"curated_stream_path": "s3a://tripclick-lake-sangjun/curated_stream/"}
     }
 
     if os.path.exists(path):
@@ -39,8 +40,8 @@ def load_config(path="/opt/spark/config/config.yaml"):
     # 환경변수 오버라이드
     if os.getenv("KAFKA_BROKERS"):
         config["kafka"]["brokers"] = os.getenv("KAFKA_BROKERS").split(",")
-    if os.getenv("S3_SILVER_PATH"):
-        config["s3"]["silver_path"] = os.getenv("S3_SILVER_PATH")
+    if os.getenv("S3_CURATED_STREAM_PATH"):
+        config["s3"]["curated_stream_path"] = os.getenv("S3_CURATED_STREAM_PATH")
 
     return config
 
@@ -70,20 +71,20 @@ TRIPCLICK_SCHEMA = StructType([
 def main():
     config = load_config()
     kafka_brokers = ",".join(config["kafka"]["brokers"])
-    silver_path = config["s3"]["silver_path"]
-    checkpoint_path = silver_path.rstrip("/").rsplit("/", 1)[0] + "/checkpoint/silver"
+    curated_stream_path = config["s3"]["curated_stream_path"]
+    checkpoint_path = curated_stream_path.rstrip("/").rsplit("/", 1)[0] + "/checkpoint/curated_stream"
 
     # Spark Session
     spark = (
         SparkSession.builder
-        .appName("TripClick-Streaming-to-Silver")
+        .appName("TripClick-Streaming-to-CuratedStream")
         .config("spark.sql.streaming.checkpointLocation", checkpoint_path)
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")
 
     print(f"[INFO] Kafka brokers: {kafka_brokers}")
-    print(f"[INFO] Silver path: {silver_path}")
+    print(f"[INFO] Curated Stream path: {curated_stream_path}")
     print(f"[INFO] Checkpoint path: {checkpoint_path}")
 
     # -----------------------
@@ -133,17 +134,28 @@ def main():
     )
 
     # -----------------------
-    # Write to S3 Silver (Parquet)
+    # Write to S3 Curated Stream (Parquet)
     # -----------------------
+    # foreachBatch + coalesce(1)로 배치당 파티션별 1개 파일로 합쳐서 쓰기
+    def write_batch(batch_df, _batch_id):
+        if batch_df.isEmpty():
+            return
+        (
+            batch_df
+            .coalesce(1)
+            .write
+            .mode("append")
+            .partitionBy("event_date")
+            .parquet(curated_stream_path)
+        )
+
     query = (
         deduped_stream.writeStream
-        .format("parquet")
         .outputMode("append")
-        .option("path", silver_path)
         .option("checkpointLocation", checkpoint_path)
-        .partitionBy("event_date")
-        .trigger(processingTime="30 seconds")  # 30초마다 마이크로배치
-        .start() # .maxRecordsPerFile()
+        .trigger(processingTime="1 minute")
+        .foreachBatch(write_batch)
+        .start()
     )
 
     print("[INFO] Streaming query started. Running for 1 hour...")
@@ -151,7 +163,41 @@ def main():
     # 1시간 실행 후 종료
     query.awaitTermination(timeout=3600)  # 3600초 = 1시간
 
-    print("[INFO] Streaming query completed.")
+    print("[INFO] Streaming completed. Starting compaction...")
+
+    # -----------------------
+    # Compaction: 작은 parquet 파일들을 event_date별 1개로 병합
+    # -----------------------
+    compact_df = spark.read.parquet(curated_stream_path)
+    record_count = compact_df.count()
+
+    if record_count > 0:
+        compact_tmp = curated_stream_path.rstrip("/") + "_compacted"
+        (
+            compact_df
+            .coalesce(1)
+            .write
+            .mode("overwrite")
+            .partitionBy("event_date")
+            .parquet(compact_tmp)
+        )
+
+        # 기존 curated_stream 덮어쓰기: tmp → curated_stream
+        hadoop_conf = spark._jsc.hadoopConfiguration()
+        fs = spark._jvm.org.apache.hadoop.fs.FileSystem.get(
+            spark._jvm.java.net.URI(curated_stream_path), hadoop_conf
+        )
+        curated_hdfs = spark._jvm.org.apache.hadoop.fs.Path(curated_stream_path)
+        tmp_hdfs = spark._jvm.org.apache.hadoop.fs.Path(compact_tmp)
+
+        # 기존 파일 삭제 후 tmp를 curated_stream으로 이동
+        fs.delete(curated_hdfs, True)
+        fs.rename(tmp_hdfs, curated_hdfs)
+
+        print(f"[INFO] Compaction done. {record_count} records → event_date별 1 parquet")
+    else:
+        print("[INFO] No records to compact. Skipping.")
+
     spark.stop()
 
 

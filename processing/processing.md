@@ -12,8 +12,8 @@ cp spark/config/config.yaml.example spark/config/config.yaml
 
 # 환경변수 설정
 export KAFKA_BROKERS="<KAFKA_IP>:9092,<KAFKA_IP>:9093,<KAFKA_IP>:9094"
-export S3_BRONZE_PATH="s3a://tripclick-lake/bronze/"
-export S3_SILVER_PATH="s3a://tripclick-lake/silver/"
+export S3_ARCHIVE_RAW_PATH="s3a://tripclick-lake-sangjun/archive_raw/"
+export S3_CURATED_STREAM_PATH="s3a://tripclick-lake-sangjun/curated_stream/"
 export AWS_ACCESS_KEY_ID="your-access-key"
 export AWS_SECRET_ACCESS_KEY="your-secret-key"
 
@@ -23,7 +23,7 @@ docker-compose -f spark-compose.yaml up -d
 # Spark UI 확인: http://localhost:8181
 ```
 
-### 2단계: Batch Job 테스트 (Kafka → Bronze)
+### 2단계: Batch Job 테스트 (Kafka → Archive Raw)
 
 ```bash
 # Spark Master 컨테이너에서 직접 실행
@@ -34,10 +34,10 @@ docker exec -it spark-master spark-submit \
   --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY} \
   --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
   --conf spark.hadoop.fs.s3a.endpoint=s3.ap-northeast-2.amazonaws.com \
-  /opt/spark/jobs/batch_to_bronze.py
+  /opt/spark/jobs/batch_to_archive_raw.py
 ```
 
-### 3단계: Streaming Job 테스트 (Kafka → Silver)
+### 3단계: Streaming Job 테스트 (Kafka → Curated Stream)
 
 ```bash
 # Producer 실행 (다른 터미널에서)
@@ -49,7 +49,7 @@ docker exec -it spark-master spark-submit \
   --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 \
   --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
   --conf spark.hadoop.fs.s3a.endpoint=s3.ap-northeast-2.amazonaws.com \
-  /opt/spark/jobs/streaming_to_silver.py
+  /opt/spark/jobs/streaming_to_curated_stream.py
 ```
 
 ### 4단계: Airflow 연동 테스트 (SSHOperator)
@@ -75,13 +75,13 @@ airflow connections add aws_s3 \
 2. **Airflow Variables 설정**:
 ```bash
 airflow variables set KAFKA_BROKERS "<KAFKA_IP>:9092"
-airflow variables set S3_BRONZE_PATH "s3a://tripclick-lake/bronze/"
-airflow variables set S3_SILVER_PATH "s3a://tripclick-lake/silver/"
+airflow variables set S3_ARCHIVE_RAW_PATH "s3a://tripclick-lake-sangjun/archive_raw/"
+airflow variables set S3_CURATED_STREAM_PATH "s3a://tripclick-lake-sangjun/curated_stream/"
 ```
 
 3. **DAG 실행**:
-- `tripclick_batch_bronze`: Batch → Bronze 테스트 (SSHOperator)
-- `tripclick_streaming_silver`: Streaming → Silver 테스트 (SSHOperator)
+- `tripclick_spark_archive_raw_batch`: Batch → Archive Raw 테스트 (SSHOperator)
+- `tripclick_streaming_curated`: Streaming → Curated Stream 테스트 (SSHOperator)
 
 ---
 
@@ -97,7 +97,7 @@ Kafka 데이터를 처리하여 S3 Data Lake에 저장하는 레이어
 | 항목 | 내용 |
 |------|------|
 | 입력 | Kafka 토픽 (`tripclick_raw_logs`) |
-| 출력 | S3 Bronze / Silver Lake |
+| 출력 | S3 Archive Raw / Curated Stream |
 | 처리 엔진 | Apache Spark 3.4.1 |
 | 오케스트레이션 | Apache Airflow (별도 서버) |
 
@@ -113,13 +113,13 @@ Kafka 데이터를 처리하여 S3 Data Lake에 저장하는 레이어
 │  ┌─────────────┐     ┌──────────────────────────────────────┐  │
 │  │   Kafka     │────▶│  Spark Streaming (1시간)             │  │
 │  │   Topic     │     │  - dedup (watermark + dedup_key)     │  │
-│  │             │     │  - S3 Silver Layer                   │  │
+│  │             │     │  - S3 Curated Stream Layer           │  │
 │  └─────────────┘     └──────────────────────────────────────┘  │
 │         │                                                       │
 │         │            ┌──────────────────────────────────────┐  │
 │         └───────────▶│  Spark Batch (Daily)                 │  │
 │                      │  - 전체 데이터 적재                   │  │
-│                      │  - S3 Bronze Layer                   │  │
+│                      │  - S3 Archive Raw Layer              │  │
 │                      └──────────────────────────────────────┘  │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -128,8 +128,8 @@ Kafka 데이터를 처리하여 S3 Data Lake에 저장하는 레이어
 ┌─────────────────────────────────────────────────────────────────┐
 │                      S3 DATA LAKE                               │
 ├─────────────────────────────────────────────────────────────────┤
-│  Bronze: s3://tripclick-lake/bronze/event_date=YYYY-MM-DD/     │
-│  Silver: s3://tripclick-lake/silver/event_date=YYYY-MM-DD/     │
+│  Archive Raw: s3://tripclick-lake-sangjun/archive_raw/event_date=YYYY-MM-DD/     │
+│  Curated Stream: s3://tripclick-lake-sangjun/curated_stream/event_date=YYYY-MM-DD/     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -141,8 +141,8 @@ Kafka 데이터를 처리하여 S3 Data Lake에 저장하는 레이어
 processing/
 ├── spark/
 │   ├── jobs/
-│   │   ├── streaming_to_silver.py   # 실시간 → Silver
-│   │   ├── batch_to_bronze.py       # 배치 → Bronze
+│   │   ├── streaming_to_curated_stream.py   # 실시간 → Curated Stream
+│   │   ├── batch_to_archive_raw.py       # 배치 → Archive Raw
 │   │   └── consumer_batch.py        # 분석용 (테스트)
 │   ├── config/
 │   │   └── config.yaml              # Spark 설정
@@ -155,9 +155,9 @@ processing/
 
 ## Spark Jobs
 
-### 1. streaming_to_silver.py (실시간)
+### 1. streaming_to_curated_stream.py (실시간)
 
-Kafka 스트림을 읽어 dedup 처리 후 S3 Silver에 저장
+Kafka 스트림을 읽어 dedup 처리 후 S3 Curated Stream에 저장
 
 | 항목 | 내용 |
 |------|------|
@@ -170,7 +170,7 @@ Kafka 스트림을 읽어 dedup 처리 후 S3 Silver에 저장
 spark-submit \
   --master spark://spark-master:7077 \
   --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1 \
-  /opt/spark/jobs/streaming_to_silver.py
+  /opt/spark/jobs/streaming_to_curated_stream.py
 ```
 
 #### 핵심 로직
@@ -188,9 +188,9 @@ query.awaitTermination(timeout=3600)
 
 ---
 
-### 2. batch_to_bronze.py (일배치)
+### 2. batch_to_archive_raw.py (일배치)
 
-전체 Kafka 데이터를 배치로 읽어 S3 Bronze에 저장
+전체 Kafka 데이터를 배치로 읽어 S3 Archive Raw에 저장
 
 | 항목 | 내용 |
 |------|------|
@@ -203,22 +203,22 @@ query.awaitTermination(timeout=3600)
 spark-submit \
   --master spark://spark-master:7077 \
   --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1 \
-  /opt/spark/jobs/batch_to_bronze.py
+  /opt/spark/jobs/batch_to_archive_raw.py
 ```
 
 ---
 
 ## 데이터 레이어 정의
 
-### Bronze Layer (원시 데이터)
+### Archive Raw Layer (원시 데이터)
 - **목적**: 원본 데이터 보존 (Data Lineage)
 - **특징**: Kafka 메타데이터 포함, 중복 허용
-- **경로**: `s3://tripclick-lake/bronze/`
+- **경로**: `s3://tripclick-lake-sangjun/archive_raw/`
 
-### Silver Layer (정제 데이터)
+### Curated Stream Layer (정제 데이터)
 - **목적**: 분석 가능한 정제 데이터
 - **특징**: 중복 제거, 스키마 정규화
-- **경로**: `s3://tripclick-lake/silver/`
+- **경로**: `s3://tripclick-lake-sangjun/curated_stream/`
 
 ---
 
@@ -233,15 +233,15 @@ kafka:
     - <KAFKA_BROKER_IP>:9094
 
 s3:
-  bronze_path: "s3a://tripclick-lake/bronze/"
-  silver_path: "s3a://tripclick-lake/silver/"
+  archive_raw_path: "s3a://tripclick-lake-sangjun/archive_raw/"
+  curated_stream_path: "s3a://tripclick-lake-sangjun/curated_stream/"
 ```
 
 ### 환경변수
 ```bash
 export KAFKA_BROKERS="broker1:9092,broker2:9092"
-export S3_BRONZE_PATH="s3a://my-bucket/bronze/"
-export S3_SILVER_PATH="s3a://my-bucket/silver/"
+export S3_ARCHIVE_RAW_PATH="s3a://tripclick-lake-sangjun/archive_raw/"
+export S3_CURATED_STREAM_PATH="s3a://tripclick-lake-sangjun/curated_stream/"
 export AWS_ACCESS_KEY_ID="..."
 export AWS_SECRET_ACCESS_KEY="..."
 ```
@@ -255,16 +255,16 @@ export AWS_SECRET_ACCESS_KEY="..."
 ```python
 # 실시간 Streaming Job
 streaming_task = SparkSubmitOperator(
-    task_id="streaming_to_silver",
-    application="/opt/spark/jobs/streaming_to_silver.py",
+    task_id="streaming_to_curated_stream",
+    application="/opt/spark/jobs/streaming_to_curated_stream.py",
     conn_id="spark_remote",
     ...
 )
 
-# 배치 Bronze Job
+# 배치 Archive Raw Job
 batch_task = SparkSubmitOperator(
-    task_id="batch_to_bronze",
-    application="/opt/spark/jobs/batch_to_bronze.py",
+    task_id="batch_to_archive_raw",
+    application="/opt/spark/jobs/batch_to_archive_raw.py",
     conn_id="spark_remote",
     ...
 )
@@ -282,7 +282,7 @@ batch_task = SparkSubmitOperator(
 16:00  Producer 종료
 16:00  Streaming Job 종료
        ↓
-17:00  Batch Job 실행 (Bronze 적재)
+17:00  Batch Job 실행 (Archive Raw 적재)
 ```
 
 ---
