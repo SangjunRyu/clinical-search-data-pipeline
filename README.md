@@ -54,7 +54,6 @@ clinical-search-data-pipeline/
 │   │       ├── etl_to_gold.py           # Silver → Gold 마트
 │   │       ├── load_to_postgres.py      # Gold → PostgreSQL
 │   │       └── consumer_batch.py        # 분석용 (테스트)
-│   ├── airflow/                  # 로컬 Airflow (레거시)
 │   └── spark-compose.yaml        # Spark 클러스터
 │
 ├── orchestration/                # 오케스트레이션 레이어 (별도 서버)
