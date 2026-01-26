@@ -58,6 +58,7 @@ clinical-search-data-pipeline/
 │
 ├── orchestration/                # 오케스트레이션 레이어 (별도 서버)
 │   ├── orchestration.md          # Orchestration 상세 문서
+│   ├── dags.md                   # Dags 상세 문서
 │   ├── dags/                     # Airflow DAG
 │   │   └── tripclick_daily_pipeline.py
 │   ├── docker-compose.yaml       # Airflow 클러스터
