@@ -138,7 +138,7 @@ clinical-search-data-pipeline/
 | Messaging | [messaging/messaging.md](messaging/messaging.md) | Kafka 클러스터, 브로커 구성, 리스너 설정 |
 | Processing | [processing/processing.md](processing/processing.md) | Spark Streaming/Batch, Archive Raw / Curated Stream |
 | Orchestration | [orchestration/orchestration.md](orchestration/orchestration.md) | Airflow DAG, Remote Docker API |
-| Analytics Mart | [gold/gold.md](gold/gold.md) | 데이터 마트, PostgreSQL, Superset |
+| Analytics Mart | [mart/mart.md](mart/mart.md) | 데이터 마트, PostgreSQL, Superset |
 | Infrastructure | [infrastructure/infrastructure.md](infrastructure/infrastructure.md) | Technical Architecture, EC2, Network |
 
 ---
