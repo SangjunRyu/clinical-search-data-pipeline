@@ -25,12 +25,25 @@ from pyspark.sql.types import (
     StringType, IntegerType, ArrayType
 )
 
+# =========================
+# JARs (마운트 경로: /opt/spark/jars)
+# =========================
+JARS_DIR = "/opt/spark/jars"
+EXTRA_JARS = ",".join([
+    # Kafka connector
+    f"{JARS_DIR}/spark-sql-kafka-0-10_2.12-3.4.1.jar",
+    f"{JARS_DIR}/kafka-clients-3.3.2.jar",
+    f"{JARS_DIR}/commons-pool2-2.11.1.jar",
+    f"{JARS_DIR}/spark-token-provider-kafka-0-10_2.12-3.4.1.jar",
+])
+
 # -----------------------
 # Spark Session
 # -----------------------
 spark = (
     SparkSession.builder
     .appName("TripClick-Batch-Consumer")
+    .config("spark.jars", EXTRA_JARS)
     .getOrCreate()
 )
 

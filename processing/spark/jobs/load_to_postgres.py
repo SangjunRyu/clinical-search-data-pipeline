@@ -9,6 +9,19 @@ from pyspark.sql import SparkSession
 
 
 # =========================
+# JARs (마운트 경로: /opt/spark/jars)
+# =========================
+JARS_DIR = "/opt/spark/jars"
+EXTRA_JARS = ",".join([
+    # Hadoop AWS (S3A)
+    f"{JARS_DIR}/hadoop-aws-3.3.4.jar",
+    f"{JARS_DIR}/aws-java-sdk-bundle-1.12.262.jar",
+    # PostgreSQL JDBC
+    f"{JARS_DIR}/postgresql-42.6.0.jar",
+])
+
+
+# =========================
 # Config
 # =========================
 def load_config():
@@ -62,7 +75,7 @@ def main():
     spark = (
         SparkSession.builder
         .appName("TripClick-Load-to-Postgres")
-        .config("spark.jars", "/opt/spark/jars/postgresql-42.6.0.jar")
+        .config("spark.jars", EXTRA_JARS)
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")

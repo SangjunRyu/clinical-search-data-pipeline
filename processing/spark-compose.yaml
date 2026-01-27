@@ -40,6 +40,7 @@ services:
     volumes:
       - ./spark/jobs:/opt/spark/jobs
       - ./spark/config:/opt/spark/config
+      - ./spark/jars:/opt/spark/jars
       - spark-checkpoint:/tmp/checkpoint
     networks:
       - spark-network
@@ -76,6 +77,7 @@ services:
     volumes:
       - ./spark/jobs:/opt/spark/jobs
       - ./spark/config:/opt/spark/config
+      - ./spark/jars:/opt/spark/jars
       - spark-checkpoint:/tmp/checkpoint
     networks:
       - spark-network
@@ -112,6 +114,7 @@ services:
     volumes:
       - ./spark/jobs:/opt/spark/jobs
       - ./spark/config:/opt/spark/config
+      - ./spark/jars:/opt/spark/jars
       - spark-checkpoint:/tmp/checkpoint
     networks:
       - spark-network

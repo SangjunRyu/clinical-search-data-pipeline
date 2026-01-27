@@ -24,6 +24,22 @@ from pyspark.sql.types import (
 
 
 # =========================
+# JARs (마운트 경로: /opt/spark/jars)
+# =========================
+JARS_DIR = "/opt/spark/jars"
+EXTRA_JARS = ",".join([
+    # Kafka connector
+    f"{JARS_DIR}/spark-sql-kafka-0-10_2.12-3.4.1.jar",
+    f"{JARS_DIR}/kafka-clients-3.3.2.jar",
+    f"{JARS_DIR}/commons-pool2-2.11.1.jar",
+    f"{JARS_DIR}/spark-token-provider-kafka-0-10_2.12-3.4.1.jar",
+    # Hadoop AWS (S3A)
+    f"{JARS_DIR}/hadoop-aws-3.3.4.jar",
+    f"{JARS_DIR}/aws-java-sdk-bundle-1.12.262.jar",
+])
+
+
+# =========================
 # Config
 # =========================
 def load_config(path="/opt/spark/config/config.yaml"):
@@ -77,6 +93,7 @@ def main():
     spark = (
         SparkSession.builder
         .appName("TripClick-Batch-to-ArchiveRaw")
+        .config("spark.jars", EXTRA_JARS)
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")
