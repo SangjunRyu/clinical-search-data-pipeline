@@ -108,6 +108,7 @@ docker exec \\
   -e POSTGRES_PASSWORD="{POSTGRES_PASSWORD}" \\
   spark-master spark-submit \\
   --master spark://spark-master:7077 \\
+  --jars /opt/spark/jars/postgresql-42.6.0.jar,/opt/spark/jars/hadoop-aws-3.3.4.jar,/opt/spark/jars/aws-java-sdk-bundle-1.12.262.jar \\
   --conf spark.hadoop.fs.s3a.access.key={AWS_ACCESS_KEY} \\
   --conf spark.hadoop.fs.s3a.secret.key={AWS_SECRET_KEY} \\
   --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \\
