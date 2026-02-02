@@ -2,12 +2,13 @@
 TripClick Main Pipeline DAG
 
 - 목적:
-  전체 파이프라인 오케스트레이션
+  Daily Batch 파이프라인 오케스트레이션
 - 구성:
-  - TriggerDagRunOperator로 각 단계별 DAG 순차 호출
-- 특징:
-  - 운영 스케줄 전용 (KST 00:00 = UTC 15:00)
-  - 각 DAG 완료 대기 후 다음 단계 진행
+  1. Producer (Kafka로 데이터 전송)
+  2. batch_to_archive_raw (Kafka → S3)
+  3. etl_to_batch_mart (S3 → PostgreSQL)
+- 스케줄:
+  매일 KST 00:00 (UTC 15:00)
 """
 
 from datetime import datetime, timedelta
@@ -35,13 +36,35 @@ DEFAULT_ARGS = {
 # =========================
 with DAG(
     dag_id="tripclick_daily_pipeline",
-    description="TripClick 전체 데이터 파이프라인 오케스트레이션",
+    description="TripClick Daily Batch 파이프라인 오케스트레이션",
     default_args=DEFAULT_ARGS,
     start_date=datetime(2026, 1, 1),
     schedule_interval="0 15 * * *",  # KST 00:00 = UTC 15:00
     catchup=False,
     max_active_runs=1,
     tags=["tripclick", "pipeline", "daily", "orchestration"],
+    doc_md="""
+    ## TripClick Daily Pipeline
+
+    ### 실행 흐름
+    ```
+    Producer (Kafka) → batch_to_archive_raw (S3) → etl_to_batch_mart (PostgreSQL)
+    ```
+
+    ### 단계별 설명
+    | 단계 | DAG ID | 설명 |
+    |------|--------|------|
+    | 1 | `tripclick_producer_batch` | 웹서버 이벤트를 Kafka로 전송 |
+    | 2 | `tripclick_spark_archive_raw_batch` | Kafka → S3 Archive Raw 저장 |
+    | 3 | `tripclick_batch_mart` | S3 → PostgreSQL Batch Mart 적재 |
+
+    ### 스케줄
+    - 매일 KST 00:00 (UTC 15:00) 실행
+    - 전날 데이터 처리
+
+    ### 참고
+    - Realtime Mart는 별도 DAG (`tripclick_realtime_mart`)로 독립 운영
+    """,
 ) as dag:
 
     start = EmptyOperator(task_id="start")
@@ -52,62 +75,33 @@ with DAG(
     # =========================
     trigger_producer = TriggerDagRunOperator(
         task_id="trigger_producer",
-        trigger_dag_id="tripclick_producer",
+        trigger_dag_id="tripclick_producer_batch",
         wait_for_completion=True,
         poke_interval=30,
-        execution_date="{{ ds }}",
         reset_dag_run=True,
         failed_states=["failed"],
     )
 
     # =========================
-    # Step 2: Processing - Streaming
+    # Step 2: Processing - Batch to Archive Raw
     # =========================
-    trigger_streaming = TriggerDagRunOperator(
-        task_id="trigger_streaming",
-        trigger_dag_id="tripclick_streaming_curated",
-        wait_for_completion=True,
-        poke_interval=30,
-        execution_date="{{ ds }}",
-        reset_dag_run=True,
-        failed_states=["failed"],
-    )
-
-    # =========================
-    # Step 3: Processing - Batch
-    # =========================
-    trigger_batch = TriggerDagRunOperator(
-        task_id="trigger_batch",
+    trigger_archive_raw = TriggerDagRunOperator(
+        task_id="trigger_archive_raw",
         trigger_dag_id="tripclick_spark_archive_raw_batch",
         wait_for_completion=True,
         poke_interval=30,
-        execution_date="{{ ds }}",
         reset_dag_run=True,
         failed_states=["failed"],
     )
 
     # =========================
-    # Step 4: Mart - Analytics Mart ETL
+    # Step 3: ETL to Batch Mart
     # =========================
-    trigger_analytics_mart = TriggerDagRunOperator(
-        task_id="trigger_analytics_mart",
-        trigger_dag_id="tripclick_analytics_mart_etl",
+    trigger_batch_mart = TriggerDagRunOperator(
+        task_id="trigger_batch_mart",
+        trigger_dag_id="tripclick_batch_mart",
         wait_for_completion=True,
         poke_interval=30,
-        execution_date="{{ ds }}",
-        reset_dag_run=True,
-        failed_states=["failed"],
-    )
-
-    # =========================
-    # Step 5: Mart - Load to PostgreSQL
-    # =========================
-    trigger_load_postgres = TriggerDagRunOperator(
-        task_id="trigger_load_postgres",
-        trigger_dag_id="tripclick_load_postgres",
-        wait_for_completion=True,
-        poke_interval=30,
-        execution_date="{{ ds }}",
         reset_dag_run=True,
         failed_states=["failed"],
     )
@@ -118,9 +112,7 @@ with DAG(
     (
         start
         >> trigger_producer
-        >> trigger_streaming
-        >> trigger_batch
-        >> trigger_analytics_mart
-        >> trigger_load_postgres
+        >> trigger_archive_raw
+        >> trigger_batch_mart
         >> end
     )

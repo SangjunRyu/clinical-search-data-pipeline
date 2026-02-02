@@ -1,18 +1,22 @@
 """
-Spark Structured Streaming: Curated Stream → PostgreSQL Analytics Mart (Near Real-Time)
+Spark Structured Streaming: Kafka → PostgreSQL Realtime Mart
 
-Curated Stream 데이터를 1~5분 마이크로배치로 읽어 Hot Analytics Mart를 PostgreSQL에 적재
-- mart_realtime_traffic_minute: 분 단위 트래픽
-- mart_realtime_top_docs_1h: 최근 1시간 인기 문서 TOP 20
-- mart_realtime_clinical_trend_24h: 최근 24시간 임상영역 트렌드
-- mart_realtime_anomaly_sessions: 세션 클릭 폭증 이상징후 감지
+Kafka에서 직접 스트리밍으로 읽어 4개 Realtime Mart를 PostgreSQL에 적재
+- mart_realtime_traffic_minute: 분 단위 트래픽 (Upsert)
+- mart_realtime_top_docs_1h: 최근 1시간 인기 문서 TOP 20 (Snapshot)
+- mart_realtime_clinical_trend_24h: 임상영역 트렌드 (Snapshot)
+- mart_realtime_anomaly_sessions: 세션 클릭 폭증 감지 (Append)
+
+실행: 상시 실행 또는 Airflow에서 주기적 트리거
 """
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import (
     col,
+    from_json,
+    to_timestamp,
     count,
     countDistinct,
     date_trunc,
@@ -25,6 +29,10 @@ from pyspark.sql.functions import (
     trim,
     window,
 )
+from pyspark.sql.types import (
+    StructType, StructField,
+    StringType, IntegerType, ArrayType
+)
 from pyspark.sql.window import Window
 
 
@@ -33,11 +41,35 @@ from pyspark.sql.window import Window
 # =========================
 JARS_DIR = "/opt/spark/jars"
 EXTRA_JARS = ",".join([
-    # Hadoop AWS (S3A)
+    # Kafka connector
+    f"{JARS_DIR}/spark-sql-kafka-0-10_2.12-3.4.1.jar",
+    f"{JARS_DIR}/kafka-clients-3.3.2.jar",
+    f"{JARS_DIR}/commons-pool2-2.11.1.jar",
+    f"{JARS_DIR}/spark-token-provider-kafka-0-10_2.12-3.4.1.jar",
+    # Hadoop AWS (S3A - for checkpoint)
     f"{JARS_DIR}/hadoop-aws-3.3.4.jar",
     f"{JARS_DIR}/aws-java-sdk-bundle-1.12.262.jar",
     # PostgreSQL JDBC
     f"{JARS_DIR}/postgresql-42.6.0.jar",
+])
+
+
+# =========================
+# Schema
+# =========================
+TRIPCLICK_SCHEMA = StructType([
+    StructField("DateCreated", StringType()),
+    StructField("SessionId", StringType()),
+    StructField("DocumentId", IntegerType()),
+    StructField("Url", StringType()),
+    StructField("Title", StringType()),
+    StructField("DOI", StringType()),
+    StructField("ClinicalAreas", StringType()),
+    StructField("Keywords", StringType()),
+    StructField("Documents", ArrayType(StringType())),
+    StructField("event_ts", StringType()),
+    StructField("event_date", StringType()),
+    StructField("dedup_key", StringType()),
 ])
 
 
@@ -47,19 +79,22 @@ EXTRA_JARS = ",".join([
 def load_config():
     """환경변수에서 설정 로드"""
     return {
-        "s3": {
-            "curated_stream_path": os.getenv("S3_CURATED_STREAM_PATH", "s3a://tripclick-lake-sangjun/curated_stream/"),
-            "checkpoint_path": os.getenv(
+        "kafka": {
+            "brokers": os.getenv("KAFKA_BROKERS", "localhost:9092"),
+            "topic": os.getenv("KAFKA_TOPIC", "tripclick_raw_logs"),
+        },
+        "checkpoint": {
+            "path": os.getenv(
                 "S3_CHECKPOINT_PATH",
-                "s3a://tripclick-lake-sangjun/checkpoint/analytics_mart_realtime/"
+                "s3a://tripclick-lake-sangjun/checkpoint/realtime_mart/"
             ),
         },
         "postgres": {
-            "host": os.getenv("POSTGRES_HOST", "localhost"),
-            "port": os.getenv("POSTGRES_PORT", "5433"),
-            "database": os.getenv("POSTGRES_DB", "tripclick_gold"),
-            "user": os.getenv("POSTGRES_USER", "gold"),
-            "password": os.getenv("POSTGRES_PASSWORD", "gold_password"),
+            "host": os.getenv("POSTGRES_HOST", "postgres-mart"),
+            "port": os.getenv("POSTGRES_PORT", "5432"),
+            "database": os.getenv("POSTGRES_DB", "tripclick_mart"),
+            "user": os.getenv("POSTGRES_USER", "mart"),
+            "password": os.getenv("POSTGRES_PASSWORD", "mart_password"),
         },
         "trigger_interval": os.getenv("TRIGGER_INTERVAL", "5 minutes"),
         "run_duration_hours": int(os.getenv("RUN_DURATION_HOURS", "1")),
@@ -67,7 +102,7 @@ def load_config():
 
 
 # =========================
-# PostgreSQL Upsert Helper
+# PostgreSQL Helpers
 # =========================
 def get_jdbc_url(config):
     """PostgreSQL JDBC URL 생성"""
@@ -76,12 +111,7 @@ def get_jdbc_url(config):
 
 
 def upsert_to_postgres(df: DataFrame, table_name: str, config: dict, key_columns: list):
-    """
-    PostgreSQL Upsert (INSERT ... ON CONFLICT DO UPDATE)
-
-    Spark JDBC는 upsert를 직접 지원하지 않으므로,
-    temp 테이블에 먼저 적재 후 SQL로 upsert 수행
-    """
+    """PostgreSQL Upsert (temp table → INSERT ON CONFLICT)"""
     if df.isEmpty():
         print(f"[INFO] No data to upsert for {table_name}")
         return
@@ -104,7 +134,7 @@ def upsert_to_postgres(df: DataFrame, table_name: str, config: dict, key_columns
         .save()
     )
 
-    # 2. Upsert SQL 실행 (psycopg2 사용)
+    # 2. Upsert SQL 실행
     try:
         import psycopg2
 
@@ -117,7 +147,6 @@ def upsert_to_postgres(df: DataFrame, table_name: str, config: dict, key_columns
         )
         cursor = conn.cursor()
 
-        # 컬럼 목록 가져오기
         columns = df.columns
         key_cols_str = ", ".join(key_columns)
         update_cols = [c for c in columns if c not in key_columns]
@@ -133,14 +162,12 @@ def upsert_to_postgres(df: DataFrame, table_name: str, config: dict, key_columns
         cursor.execute(f"DROP TABLE IF EXISTS {temp_table}")
         conn.commit()
 
-        print(f"[INFO] Upserted {df.count()} records to {table_name}")
-
+        print(f"[INFO] Upserted to {table_name}")
         cursor.close()
         conn.close()
 
     except ImportError:
-        # psycopg2 없으면 단순 overwrite
-        print(f"[WARN] psycopg2 not available, using simple write for {table_name}")
+        print(f"[WARN] psycopg2 not available, using append for {table_name}")
         (
             df
             .write
@@ -155,10 +182,10 @@ def upsert_to_postgres(df: DataFrame, table_name: str, config: dict, key_columns
         )
 
 
-def simple_write_to_postgres(df: DataFrame, table_name: str, config: dict):
-    """단순 INSERT (이상징후 같은 append-only 테이블용)"""
+def append_to_postgres(df: DataFrame, table_name: str, config: dict):
+    """단순 INSERT (append-only 테이블용)"""
     if df.isEmpty():
-        print(f"[INFO] No data to write for {table_name}")
+        print(f"[INFO] No data to append for {table_name}")
         return
 
     pg = config["postgres"]
@@ -177,18 +204,15 @@ def simple_write_to_postgres(df: DataFrame, table_name: str, config: dict):
         .save()
     )
 
-    print(f"[INFO] Inserted {df.count()} records to {table_name}")
+    print(f"[INFO] Appended to {table_name}")
 
 
 # =========================
-# foreachBatch 처리 함수들
+# Mart Processing Functions
 # =========================
 def process_realtime_traffic(batch_df: DataFrame, batch_id: int, config: dict):
     """분 단위 트래픽 집계 → mart_realtime_traffic_minute"""
-    print(f"[INFO] Processing batch {batch_id} for realtime_traffic...")
-
     if batch_df.isEmpty():
-        print(f"[INFO] Batch {batch_id} is empty, skipping realtime_traffic")
         return
 
     traffic_df = (
@@ -207,14 +231,10 @@ def process_realtime_traffic(batch_df: DataFrame, batch_id: int, config: dict):
 
 
 def process_top_docs(batch_df: DataFrame, batch_id: int, config: dict):
-    """최근 1시간 인기 문서 TOP 20 → mart_realtime_top_docs_1h (스냅샷)"""
-    print(f"[INFO] Processing batch {batch_id} for top_docs...")
-
+    """인기 문서 TOP 20 → mart_realtime_top_docs_1h"""
     if batch_df.isEmpty():
-        print(f"[INFO] Batch {batch_id} is empty, skipping top_docs")
         return
 
-    # 최근 1시간 필터 (batch_df가 이미 최근 데이터라 가정)
     snapshot_ts = datetime.now()
 
     top_docs_df = (
@@ -228,7 +248,6 @@ def process_top_docs(batch_df: DataFrame, batch_id: int, config: dict):
         .limit(20)
     )
 
-    # 순위 부여
     window_spec = Window.orderBy(col("click_count").desc())
     top_docs_ranked = (
         top_docs_df
@@ -237,15 +256,12 @@ def process_top_docs(batch_df: DataFrame, batch_id: int, config: dict):
         .select("snapshot_ts", "rank", "document_id", "title", "click_count", "unique_sessions")
     )
 
-    simple_write_to_postgres(top_docs_ranked, "mart_realtime_top_docs_1h", config)
+    append_to_postgres(top_docs_ranked, "mart_realtime_top_docs_1h", config)
 
 
 def process_clinical_trend(batch_df: DataFrame, batch_id: int, config: dict):
-    """최근 24시간 임상영역 트렌드 → mart_realtime_clinical_trend_24h (스냅샷)"""
-    print(f"[INFO] Processing batch {batch_id} for clinical_trend...")
-
+    """임상영역 트렌드 → mart_realtime_clinical_trend_24h"""
     if batch_df.isEmpty():
-        print(f"[INFO] Batch {batch_id} is empty, skipping clinical_trend")
         return
 
     snapshot_ts = datetime.now()
@@ -263,19 +279,16 @@ def process_clinical_trend(batch_df: DataFrame, batch_id: int, config: dict):
             countDistinct("session_id").alias("unique_sessions"),
         )
         .withColumn("snapshot_ts", lit(snapshot_ts))
-        .withColumn("trend_pct", lit(0.0))  # 전일 대비는 별도 계산 필요
+        .withColumn("trend_pct", lit(0.0))
         .select("snapshot_ts", "clinical_area", "click_count", "unique_sessions", "trend_pct")
     )
 
-    simple_write_to_postgres(clinical_df, "mart_realtime_clinical_trend_24h", config)
+    append_to_postgres(clinical_df, "mart_realtime_clinical_trend_24h", config)
 
 
 def process_anomaly_detection(batch_df: DataFrame, batch_id: int, config: dict):
-    """세션 클릭 폭증 이상징후 감지 → mart_realtime_anomaly_sessions"""
-    print(f"[INFO] Processing batch {batch_id} for anomaly_detection...")
-
+    """세션 클릭 폭증 감지 → mart_realtime_anomaly_sessions"""
     if batch_df.isEmpty():
-        print(f"[INFO] Batch {batch_id} is empty, skipping anomaly_detection")
         return
 
     detected_ts = datetime.now()
@@ -288,7 +301,7 @@ def process_anomaly_detection(batch_df: DataFrame, batch_id: int, config: dict):
             "session_id"
         )
         .agg(count("*").alias("click_count"))
-        .filter(col("click_count") >= 50)  # 50회 이상만 이상징후
+        .filter(col("click_count") >= 50)
         .withColumn(
             "severity",
             when(col("click_count") >= 100, "CRITICAL").otherwise("WARNING")
@@ -300,7 +313,7 @@ def process_anomaly_detection(batch_df: DataFrame, batch_id: int, config: dict):
     )
 
     if session_clicks.count() > 0:
-        simple_write_to_postgres(session_clicks, "mart_realtime_anomaly_sessions", config)
+        append_to_postgres(session_clicks, "mart_realtime_anomaly_sessions", config)
         print(f"[ALERT] Detected {session_clicks.count()} anomaly sessions!")
 
 
@@ -309,83 +322,94 @@ def process_anomaly_detection(batch_df: DataFrame, batch_id: int, config: dict):
 # =========================
 def main():
     config = load_config()
-    curated_stream_path = config["s3"]["curated_stream_path"]
-    checkpoint_base = config["s3"]["checkpoint_path"]
+    kafka_brokers = config["kafka"]["brokers"]
+    kafka_topic = config["kafka"]["topic"]
+    checkpoint_path = config["checkpoint"]["path"]
     trigger_interval = config["trigger_interval"]
-    run_duration = config["run_duration_hours"] * 3600  # seconds
+    run_duration = config["run_duration_hours"] * 3600
 
     # Spark Session
     spark = (
         SparkSession.builder
-        .appName("TripClick-Streaming-to-AnalyticsMart-Realtime")
+        .appName("TripClick-Streaming-to-RealtimeMart")
         .config("spark.jars", EXTRA_JARS)
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")
 
-    print(f"[INFO] Curated Stream path: {curated_stream_path}")
-    print(f"[INFO] Checkpoint base: {checkpoint_base}")
+    print(f"[INFO] Kafka: {kafka_brokers} / {kafka_topic}")
+    print(f"[INFO] Checkpoint: {checkpoint_path}")
+    print(f"[INFO] PostgreSQL: {config['postgres']['host']}:{config['postgres']['port']}")
     print(f"[INFO] Trigger interval: {trigger_interval}")
     print(f"[INFO] Run duration: {run_duration} seconds")
 
     # -----------------------
-    # Streaming Read from Curated Stream (Parquet)
+    # Kafka Streaming Read
     # -----------------------
-    curated_stream = (
+    kafka_stream = (
         spark.readStream
-        .format("parquet")
-        .option("path", curated_stream_path)
-        .option("maxFilesPerTrigger", 10)  # 배치당 최대 10파일
+        .format("kafka")
+        .option("kafka.bootstrap.servers", kafka_brokers)
+        .option("subscribe", kafka_topic)
+        .option("startingOffsets", "latest")
         .load()
     )
 
+    # Parse JSON
+    parsed_stream = (
+        kafka_stream
+        .selectExpr("CAST(value AS STRING) as json_str")
+        .withColumn("data", from_json(col("json_str"), TRIPCLICK_SCHEMA))
+        .select(
+            col("data.SessionId").alias("session_id"),
+            col("data.DocumentId").alias("document_id"),
+            col("data.Title").alias("title"),
+            col("data.ClinicalAreas").alias("clinical_areas"),
+            to_timestamp(col("data.event_ts")).alias("event_ts"),
+            col("data.event_date").alias("event_date"),
+            col("data.dedup_key").alias("dedup_key"),
+        )
+        .withWatermark("event_ts", "10 minutes")
+        .dropDuplicates(["dedup_key"])
+    )
+
     # -----------------------
-    # foreachBatch로 4개 마트 동시 처리
+    # foreachBatch 처리
     # -----------------------
     def process_all_marts(batch_df: DataFrame, batch_id: int):
-        """모든 Hot Analytics Mart를 한 번에 처리"""
+        """모든 Realtime Mart를 한 번에 처리"""
         if batch_df.isEmpty():
-            print(f"[INFO] Batch {batch_id} is empty, skipping all marts")
+            print(f"[INFO] Batch {batch_id} is empty, skipping")
             return
 
-        # 배치 캐시 (여러 번 사용되므로)
         batch_df.cache()
         record_count = batch_df.count()
         print(f"[INFO] Batch {batch_id}: {record_count} records")
 
         try:
-            # 1. 분 단위 트래픽
             process_realtime_traffic(batch_df, batch_id, config)
-
-            # 2. 인기 문서 TOP 20
             process_top_docs(batch_df, batch_id, config)
-
-            # 3. 임상영역 트렌드
             process_clinical_trend(batch_df, batch_id, config)
-
-            # 4. 이상징후 감지
             process_anomaly_detection(batch_df, batch_id, config)
-
         finally:
             batch_df.unpersist()
 
     # -----------------------
-    # Write Stream
+    # Start Streaming Query
     # -----------------------
     query = (
-        curated_stream.writeStream
+        parsed_stream.writeStream
         .foreachBatch(process_all_marts)
-        .option("checkpointLocation", f"{checkpoint_base}analytics_mart_realtime_all/")
+        .option("checkpointLocation", checkpoint_path)
         .trigger(processingTime=trigger_interval)
         .start()
     )
 
-    print(f"[INFO] Streaming query started. Running for {run_duration} seconds...")
+    print(f"[INFO] Streaming started. Running for {run_duration} seconds...")
 
-    # 지정된 시간 동안 실행
     query.awaitTermination(timeout=run_duration)
 
-    print("[INFO] Streaming to Analytics Mart Realtime completed.")
+    print("[INFO] Streaming to Realtime Mart completed.")
     spark.stop()
 
 

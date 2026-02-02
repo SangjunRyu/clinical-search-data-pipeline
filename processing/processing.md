@@ -1,103 +1,13 @@
-## 테스트 가이드
-
-### 1단계: Spark 클러스터 실행
-
-```bash
-# processing 디렉토리로 이동
-cd processing
-
-# config 파일 생성
-cp spark/config/config.yaml.example spark/config/config.yaml
-# config.yaml에서 KAFKA_BROKERS IP 수정
-
-# 환경변수 설정
-export KAFKA_BROKERS="<KAFKA_IP>:9092,<KAFKA_IP>:9093,<KAFKA_IP>:9094"
-export S3_ARCHIVE_RAW_PATH="s3a://tripclick-lake-sangjun/archive_raw/"
-export S3_CURATED_STREAM_PATH="s3a://tripclick-lake-sangjun/curated_stream/"
-export AWS_ACCESS_KEY_ID="your-access-key"
-export AWS_SECRET_ACCESS_KEY="your-secret-key"
-
-# Spark 클러스터 시작
-docker-compose -f spark-compose.yaml up -d
-
-# Spark UI 확인: http://localhost:8181
-```
-
-### 2단계: Batch Job 테스트 (Kafka → Archive Raw)
-
-```bash
-# Spark Master 컨테이너에서 직접 실행
-docker exec -it spark-master spark-submit \
-  --master spark://spark-master:7077 \
-  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 \
-  --conf spark.hadoop.fs.s3a.access.key=${AWS_ACCESS_KEY_ID} \
-  --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY} \
-  --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
-  --conf spark.hadoop.fs.s3a.endpoint=s3.ap-northeast-2.amazonaws.com \
-  /opt/spark/jobs/batch_to_archive_raw.py
-```
-
-### 3단계: Streaming Job 테스트 (Kafka → Curated Stream)
-
-```bash
-# Producer 실행 (다른 터미널에서)
-# ingestion 서버에서 producer 실행 필요
-
-# Streaming Job 실행 (1시간 동안 실행)
-docker exec -it spark-master spark-submit \
-  --master spark://spark-master:7077 \
-  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 \
-  --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
-  --conf spark.hadoop.fs.s3a.endpoint=s3.ap-northeast-2.amazonaws.com \
-  /opt/spark/jobs/streaming_to_curated_stream.py
-```
-
-### 4단계: Airflow 연동 테스트 (SSHOperator)
-
-> **Note**: SparkSubmitOperator의 Client Mode 네트워크 문제로 인해 SSHOperator를 사용합니다.
-
-1. **Airflow Connection 설정**:
-```bash
-# Spark SSH Connection 추가 (SSHOperator용)
-airflow connections add spark_ssh \
-  --conn-type ssh \
-  --conn-host <SPARK_SERVER_IP> \
-  --conn-login ubuntu \
-  --conn-extra '{"key_file": "/opt/airflow/config/spark_key.pem"}'
-
-# AWS S3 Connection 추가
-airflow connections add aws_s3 \
-  --conn-type aws \
-  --conn-login $AWS_ACCESS_KEY_ID \
-  --conn-password $AWS_SECRET_ACCESS_KEY
-```
-
-2. **Airflow Variables 설정**:
-```bash
-airflow variables set KAFKA_BROKERS "<KAFKA_IP>:9092"
-airflow variables set S3_ARCHIVE_RAW_PATH "s3a://tripclick-lake-sangjun/archive_raw/"
-airflow variables set S3_CURATED_STREAM_PATH "s3a://tripclick-lake-sangjun/curated_stream/"
-```
-
-3. **DAG 실행**:
-- `tripclick_spark_archive_raw_batch`: Batch → Archive Raw 테스트 (SSHOperator)
-- `tripclick_streaming_curated`: Streaming → Curated Stream 테스트 (SSHOperator)
-
----
-
-
-
-
 # Processing Layer
 
-Kafka 데이터를 처리하여 S3 Data Lake에 저장하는 레이어
+Kafka 데이터를 처리하여 S3 및 PostgreSQL에 저장하는 레이어
 
 ## 개요
 
 | 항목 | 내용 |
 |------|------|
-| 입력 | Kafka 토픽 (`tripclick_raw_logs`) |
-| 출력 | S3 Archive Raw / Curated Stream |
+| 입력 | Kafka 토픽 (`tripclick_raw_logs`), S3 Archive Raw |
+| 출력 | S3 Archive Raw, PostgreSQL Mart |
 | 처리 엔진 | Apache Spark 3.4.1 |
 | 오케스트레이션 | Apache Airflow (별도 서버) |
 
@@ -105,32 +15,29 @@ Kafka 데이터를 처리하여 S3 Data Lake에 저장하는 레이어
 
 ## 아키텍처
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    PROCESSING LAYER                             │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌─────────────┐     ┌──────────────────────────────────────┐  │
-│  │   Kafka     │────▶│  Spark Streaming (1시간)             │  │
-│  │   Topic     │     │  - dedup (watermark + dedup_key)     │  │
-│  │             │     │  - S3 Curated Stream Layer           │  │
-│  └─────────────┘     └──────────────────────────────────────┘  │
-│         │                                                       │
-│         │            ┌──────────────────────────────────────┐  │
-│         └───────────▶│  Spark Batch (Daily)                 │  │
-│                      │  - 전체 데이터 적재                   │  │
-│                      │  - S3 Archive Raw Layer              │  │
-│                      └──────────────────────────────────────┘  │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      S3 DATA LAKE                               │
-├─────────────────────────────────────────────────────────────────┤
-│  Archive Raw: s3://tripclick-lake-sangjun/archive_raw/event_date=YYYY-MM-DD/     │
-│  Curated Stream: s3://tripclick-lake-sangjun/curated_stream/event_date=YYYY-MM-DD/     │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Input
+        K["Kafka<br/>tripclick_raw_logs"]
+    end
+
+    subgraph Spark["Spark Cluster"]
+        J1["batch_to_archive_raw<br/>(Daily Batch)"]
+        J2["etl_to_batch_mart<br/>(Daily ETL)"]
+        J3["streaming_to_realtime_mart<br/>(Structured Streaming)"]
+    end
+
+    subgraph Storage
+        S3["S3 archive_raw/<br/>(Parquet)"]
+    end
+
+    subgraph Output
+        PG["PostgreSQL<br/>Batch + Realtime Marts"]
+    end
+
+    K -->|Batch Read| J1 --> S3
+    S3 --> J2 --> PG
+    K -->|Streaming| J3 --> PG
 ```
 
 ---
@@ -141,69 +48,107 @@ Kafka 데이터를 처리하여 S3 Data Lake에 저장하는 레이어
 processing/
 ├── spark/
 │   ├── jobs/
-│   │   ├── streaming_to_curated_stream.py   # 실시간 → Curated Stream
-│   │   ├── batch_to_archive_raw.py       # 배치 → Archive Raw
-│   │   └── consumer_batch.py        # 분석용 (테스트)
+│   │   ├── batch_to_archive_raw.py       # Kafka → S3 Archive Raw
+│   │   ├── etl_to_batch_mart.py          # S3 → PostgreSQL Batch Mart
+│   │   ├── streaming_to_realtime_mart.py # Kafka → PostgreSQL Realtime Mart
+│   │   └── consumer_batch.py             # 테스트용
+│   ├── jars/                             # Spark JARs
+│   │   ├── spark-sql-kafka-0-10_2.12-3.4.1.jar
+│   │   ├── kafka-clients-3.3.2.jar
+│   │   ├── commons-pool2-2.11.1.jar
+│   │   ├── spark-token-provider-kafka-0-10_2.12-3.4.1.jar
+│   │   ├── hadoop-aws-3.3.4.jar
+│   │   ├── aws-java-sdk-bundle-1.12.262.jar
+│   │   └── postgresql-42.6.0.jar
 │   ├── config/
-│   │   └── config.yaml              # Spark 설정
-│   ├── jars/                        # Kafka/S3 커넥터
+│   │   └── config.yaml
 │   └── Dockerfile
-└── spark-compose.yaml               # Spark 클러스터
+└── spark-compose.yaml
 ```
 
 ---
 
 ## Spark Jobs
 
-### 1. streaming_to_curated_stream.py (실시간)
+### 1. batch_to_archive_raw.py
 
-Kafka 스트림을 읽어 dedup 처리 후 S3 Curated Stream에 저장
+Kafka 전체 데이터를 배치로 읽어 S3 Archive Raw에 저장
 
 | 항목 | 내용 |
 |------|------|
-| 실행 시간 | 1시간 (producer와 동시 실행) |
-| 중복 제거 | Watermark(10분) + dedup_key |
-| 출력 형식 | Parquet |
+| 실행 주기 | Daily |
+| 입력 | Kafka (earliest → latest) |
+| 출력 | S3 Archive Raw (Parquet) |
 | 파티션 | event_date |
 
 ```bash
-spark-submit \
+docker exec spark-master spark-submit \
   --master spark://spark-master:7077 \
-  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1 \
-  /opt/spark/jobs/streaming_to_curated_stream.py
-```
-
-#### 핵심 로직
-```python
-# Watermark + Dedup
-deduped_stream = (
-    parsed_stream
-    .withWatermark("event_ts", "10 minutes")
-    .dropDuplicates(["dedup_key"])
-)
-
-# 1시간 실행 후 종료
-query.awaitTermination(timeout=3600)
+  --conf spark.hadoop.fs.s3a.access.key=${AWS_ACCESS_KEY_ID} \
+  --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY} \
+  --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
+  /opt/spark/jobs/batch_to_archive_raw.py
 ```
 
 ---
 
-### 2. batch_to_archive_raw.py (일배치)
+### 2. etl_to_batch_mart.py
 
-전체 Kafka 데이터를 배치로 읽어 S3 Archive Raw에 저장
+S3 Archive Raw 데이터를 읽어 중복 제거 후 PostgreSQL Batch Mart에 적재
 
 | 항목 | 내용 |
 |------|------|
-| 실행 주기 | Daily (17:00 이후) |
-| 읽기 범위 | earliest → latest |
-| 출력 형식 | Parquet |
-| 메타데이터 | Kafka offset, partition, timestamp |
+| 실행 주기 | Daily (batch_to_archive_raw 이후) |
+| 입력 | S3 Archive Raw |
+| 출력 | PostgreSQL (4개 Batch Mart) |
+| 중복 제거 | dedup_key 기준 |
+
+**생성되는 Mart 테이블:**
+
+| 테이블 | 설명 |
+|--------|------|
+| `mart_session_analysis` | 세션별 클릭 분석 |
+| `mart_daily_traffic` | 일별 트래픽 집계 |
+| `mart_clinical_areas` | 임상 분야별 검색 통계 |
+| `mart_popular_documents` | 인기 문서 순위 |
 
 ```bash
-spark-submit \
+docker exec spark-master spark-submit \
   --master spark://spark-master:7077 \
-  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1 \
-  /opt/spark/jobs/batch_to_archive_raw.py
+  --conf spark.hadoop.fs.s3a.access.key=${AWS_ACCESS_KEY_ID} \
+  --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY} \
+  /opt/spark/jobs/etl_to_batch_mart.py
+```
+
+---
+
+### 3. streaming_to_realtime_mart.py
+
+Kafka에서 직접 스트리밍으로 읽어 PostgreSQL Realtime Mart에 적재
+
+| 항목 | 내용 |
+|------|------|
+| 실행 방식 | Structured Streaming (1시간 실행) |
+| 입력 | Kafka (startingOffsets=latest) |
+| 출력 | PostgreSQL (4개 Realtime Mart) |
+| 트리거 | 5분 마이크로배치 |
+| 중복 제거 | Watermark(10분) + dedup_key |
+
+**생성되는 Mart 테이블:**
+
+| 테이블 | 설명 | 업데이트 방식 |
+|--------|------|---------------|
+| `mart_realtime_traffic_minute` | 분 단위 트래픽 | Upsert |
+| `mart_realtime_top_docs_1h` | 인기 문서 TOP 20 | Append (스냅샷) |
+| `mart_realtime_clinical_trend_24h` | 임상영역 트렌드 | Append (스냅샷) |
+| `mart_realtime_anomaly_sessions` | 이상징후 감지 | Append |
+
+```bash
+docker exec spark-master spark-submit \
+  --master spark://spark-master:7077 \
+  --conf spark.hadoop.fs.s3a.access.key=${AWS_ACCESS_KEY_ID} \
+  --conf spark.hadoop.fs.s3a.secret.key=${AWS_SECRET_ACCESS_KEY} \
+  /opt/spark/jobs/streaming_to_realtime_mart.py
 ```
 
 ---
@@ -211,85 +156,117 @@ spark-submit \
 ## 데이터 레이어 정의
 
 ### Archive Raw Layer (원시 데이터)
-- **목적**: 원본 데이터 보존 (Data Lineage)
+
+- **목적**: 원본 데이터 보존 (Immutable, Data Lineage)
 - **특징**: Kafka 메타데이터 포함, 중복 허용
 - **경로**: `s3://tripclick-lake-sangjun/archive_raw/`
+- **파티션**: `event_date=YYYY-MM-DD`
 
-### Curated Stream Layer (정제 데이터)
-- **목적**: 분석 가능한 정제 데이터
-- **특징**: 중복 제거, 스키마 정규화
-- **경로**: `s3://tripclick-lake-sangjun/curated_stream/`
+### PostgreSQL Mart Layer
+
+- **Batch Mart**: 일배치로 전체 재계산 (T+1 정합성)
+- **Realtime Mart**: 스트리밍으로 실시간 갱신 (5분 지연)
 
 ---
 
-## 설정
+## JAR 의존성
 
-### config/config.yaml.example
-```yaml
-kafka:
-  brokers:
-    - <KAFKA_BROKER_IP>:9092
-    - <KAFKA_BROKER_IP>:9093
-    - <KAFKA_BROKER_IP>:9094
+`processing/spark/jars/` 디렉토리에 다음 JAR 파일 필요:
 
-s3:
-  archive_raw_path: "s3a://tripclick-lake-sangjun/archive_raw/"
-  curated_stream_path: "s3a://tripclick-lake-sangjun/curated_stream/"
-```
+| JAR | 용도 |
+|-----|------|
+| `spark-sql-kafka-0-10_2.12-3.4.1.jar` | Kafka 커넥터 |
+| `kafka-clients-3.3.2.jar` | Kafka 클라이언트 |
+| `commons-pool2-2.11.1.jar` | 커넥션 풀 |
+| `spark-token-provider-kafka-0-10_2.12-3.4.1.jar` | Kafka 토큰 |
+| `hadoop-aws-3.3.4.jar` | S3A 파일시스템 |
+| `aws-java-sdk-bundle-1.12.262.jar` | AWS SDK |
+| `postgresql-42.6.0.jar` | PostgreSQL JDBC |
 
-### 환경변수
+Docker Compose에서 `./spark/jars:/opt/spark/jars`로 마운트됩니다.
+
+---
+
+## 환경변수
+
 ```bash
-export KAFKA_BROKERS="broker1:9092,broker2:9092"
+# Kafka
+export KAFKA_BROKERS="broker1:9092,broker2:9093,broker3:9094"
+
+# S3
 export S3_ARCHIVE_RAW_PATH="s3a://tripclick-lake-sangjun/archive_raw/"
-export S3_CURATED_STREAM_PATH="s3a://tripclick-lake-sangjun/curated_stream/"
+export S3_CHECKPOINT_PATH="s3a://tripclick-lake-sangjun/checkpoint/"
 export AWS_ACCESS_KEY_ID="..."
 export AWS_SECRET_ACCESS_KEY="..."
+
+# PostgreSQL
+export POSTGRES_HOST="postgres-mart"
+export POSTGRES_PORT="5432"
+export POSTGRES_DB="tripclick_mart"
+export POSTGRES_USER="mart"
+export POSTGRES_PASSWORD="mart_password"
 ```
 
 ---
 
-## 외부 Airflow 연동
-
-별도 Airflow 서버에서 SparkSubmitOperator로 실행 예정:
-
-```python
-# 실시간 Streaming Job
-streaming_task = SparkSubmitOperator(
-    task_id="streaming_to_curated_stream",
-    application="/opt/spark/jobs/streaming_to_curated_stream.py",
-    conn_id="spark_remote",
-    ...
-)
-
-# 배치 Archive Raw Job
-batch_task = SparkSubmitOperator(
-    task_id="batch_to_archive_raw",
-    application="/opt/spark/jobs/batch_to_archive_raw.py",
-    conn_id="spark_remote",
-    ...
-)
-```
-
----
-
-## 실행 순서 (Daily)
+## 실행 순서 (Daily Pipeline)
 
 ```
-15:00  Producer 시작 (실시간 전송)
-       ↓
-15:00  Streaming Job 시작 (1시간)
+15:00  Producer 시작 (Kafka로 이벤트 전송)
        ↓
 16:00  Producer 종료
-16:00  Streaming Job 종료
        ↓
-17:00  Batch Job 실행 (Archive Raw 적재)
+17:00  batch_to_archive_raw 실행 (Kafka → S3)
+       ↓
+18:00  etl_to_batch_mart 실행 (S3 → PostgreSQL)
+       ↓
+       완료
+```
+
+Realtime 파이프라인은 별도로 `streaming_to_realtime_mart`를 상시 실행합니다.
+
+---
+
+## 테스트 가이드
+
+### 1단계: Spark 클러스터 실행
+
+```bash
+cd processing
+docker-compose -f spark-compose.yaml up -d
+
+# Spark UI 확인: http://localhost:8080
+```
+
+### 2단계: Batch Job 테스트
+
+```bash
+# Archive Raw 적재
+docker exec -it spark-master spark-submit \
+  --master spark://spark-master:7077 \
+  /opt/spark/jobs/batch_to_archive_raw.py
+
+# Batch Mart 적재
+docker exec -it spark-master spark-submit \
+  --master spark://spark-master:7077 \
+  /opt/spark/jobs/etl_to_batch_mart.py
+```
+
+### 3단계: Streaming Job 테스트
+
+```bash
+docker exec -it spark-master spark-submit \
+  --master spark://spark-master:7077 \
+  /opt/spark/jobs/streaming_to_realtime_mart.py
 ```
 
 ---
 
 ## TODO
 
+- [x] Spark Jobs 단순화 (6개 → 3개)
+- [x] JAR 마운트 방식으로 변경
+- [x] PostgreSQL 직접 적재
 - [ ] Spark 클러스터 설정 최적화
-- [ ] Checkpoint 외부 스토리지 (S3)로 이동
 - [ ] 모니터링 (Spark UI, Prometheus)
 - [ ] 실패 시 알림 (Slack/Email)

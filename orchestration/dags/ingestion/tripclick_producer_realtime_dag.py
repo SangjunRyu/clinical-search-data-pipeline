@@ -100,6 +100,47 @@ with DAG(
     )
 
     # =========================
+    # Producer - Server 1 (Realtime)
+    # =========================
+    producer_server1 = DockerOperator(
+        task_id="producer_server1_realtime",
+        image=PRODUCER_IMAGE,
+        force_pull=False,
+        command=[
+            "--mode", "realtime",
+            "--file", "/app/data/date={{ ds }}/events.json",
+            "--topic", "tripclick_raw_logs",
+        ],
+        docker_url="tcp://10.0.16.8:2375",
+        network_mode="host",
+        environment={
+            "KAFKA_BROKERS": KAFKA_BROKERS,
+        },
+        mounts=[
+            Mount(
+                source=f"{WEBSERVER_INGESTION_PATH}/server0",
+                target="/app/data",
+                type="bind",
+                read_only=True,
+            ),
+            Mount(
+                source=f"{WEBSERVER_INGESTION_PATH}/ingestion/config",
+                target="/app/config",
+                type="bind",
+                read_only=True,
+            ),
+            Mount(
+                source="/home/ubuntu/ingestion/logs",
+                target="/app/logs",
+                type="bind",
+            ),
+        ],
+        mount_tmp_dir=False,
+        auto_remove="success",
+    )
+
+
+    # =========================
     # Dependencies
     # =========================
-    start >> producer_server0 >> end
+    start >> [producer_server0, producer_server1] >> end
