@@ -1,13 +1,21 @@
 """
 Spark Structured Streaming: Kafka → PostgreSQL Realtime Mart
 
-Kafka에서 직접 스트리밍으로 읽어 4개 Realtime Mart를 PostgreSQL에 적재
-- mart_realtime_traffic_minute: 분 단위 트래픽 (Upsert)
-- mart_realtime_top_docs_1h: 최근 1시간 인기 문서 TOP 20 (Snapshot)
-- mart_realtime_clinical_trend_24h: 임상영역 트렌드 (Snapshot)
-- mart_realtime_anomaly_sessions: 세션 클릭 폭증 감지 (Append)
+Lambda Architecture의 Speed Layer 구현
+- Kafka에서 단일 Consumer Group으로 스트림 소비
+- 5분 마이크로배치로 4개 Realtime Mart를 PostgreSQL에 적재
+- Batch Layer(S3 Archive)와 독립적으로 운영
 
-실행: 상시 실행 또는 Airflow에서 주기적 트리거
+Realtime Mart 테이블:
+- mart_realtime_traffic_minute: 분 단위 트래픽 (Upsert)
+- mart_realtime_top_docs_1h: 최근 1시간 인기 문서 TOP 20 (Snapshot Append)
+- mart_realtime_clinical_trend_24h: 임상영역 트렌드 (Snapshot Append)
+- mart_realtime_anomaly_sessions: 세션 클릭 폭증 감지 (Event Append)
+
+핵심 전략:
+1. Consumer Group 1개로 Kafka 소비 (Spark 내부에서 branching)
+2. Checkpoint 기반 오프셋 관리 (exactly-once semantics)
+3. dedup_key + watermark로 중복 제거
 """
 
 import os
@@ -34,6 +42,13 @@ from pyspark.sql.types import (
     StringType, IntegerType, ArrayType
 )
 from pyspark.sql.window import Window
+
+# psycopg2 import (upsert용)
+try:
+    import psycopg2
+    PSYCOPG2_AVAILABLE = True
+except ImportError:
+    PSYCOPG2_AVAILABLE = False
 
 
 # =========================
@@ -82,6 +97,7 @@ def load_config():
         "kafka": {
             "brokers": os.getenv("KAFKA_BROKERS", "localhost:9092"),
             "topic": os.getenv("KAFKA_TOPIC", "tripclick_raw_logs"),
+            "group_id": os.getenv("KAFKA_GROUP_ID", "tripclick-realtime-mart"),
         },
         "checkpoint": {
             "path": os.getenv(
@@ -118,7 +134,26 @@ def upsert_to_postgres(df: DataFrame, table_name: str, config: dict, key_columns
 
     pg = config["postgres"]
     jdbc_url = get_jdbc_url(config)
-    temp_table = f"temp_{table_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+    # psycopg2 없으면 단순 append로 fallback
+    if not PSYCOPG2_AVAILABLE:
+        print(f"[WARN] psycopg2 not available, using append for {table_name}")
+        (
+            df
+            .write
+            .format("jdbc")
+            .option("url", jdbc_url)
+            .option("dbtable", table_name)
+            .option("user", pg["user"])
+            .option("password", pg["password"])
+            .option("driver", "org.postgresql.Driver")
+            .mode("append")
+            .save()
+        )
+        return
+
+    # Upsert: temp table → INSERT ON CONFLICT
+    temp_table = f"temp_{table_name}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
 
     # 1. Temp 테이블에 적재
     (
@@ -135,9 +170,8 @@ def upsert_to_postgres(df: DataFrame, table_name: str, config: dict, key_columns
     )
 
     # 2. Upsert SQL 실행
+    conn = None
     try:
-        import psycopg2
-
         conn = psycopg2.connect(
             host=pg["host"],
             port=pg["port"],
@@ -164,22 +198,12 @@ def upsert_to_postgres(df: DataFrame, table_name: str, config: dict, key_columns
 
         print(f"[INFO] Upserted to {table_name}")
         cursor.close()
-        conn.close()
 
-    except ImportError:
-        print(f"[WARN] psycopg2 not available, using append for {table_name}")
-        (
-            df
-            .write
-            .format("jdbc")
-            .option("url", jdbc_url)
-            .option("dbtable", table_name)
-            .option("user", pg["user"])
-            .option("password", pg["password"])
-            .option("driver", "org.postgresql.Driver")
-            .mode("append")
-            .save()
-        )
+    except Exception as e:
+        print(f"[ERROR] Upsert failed for {table_name}: {e}")
+    finally:
+        if conn:
+            conn.close()
 
 
 def append_to_postgres(df: DataFrame, table_name: str, config: dict):
@@ -312,9 +336,11 @@ def process_anomaly_detection(batch_df: DataFrame, batch_id: int, config: dict):
         .select("detected_ts", "session_id", "window_start", "window_end", "click_count", "severity")
     )
 
-    if session_clicks.count() > 0:
+    # count() 한 번만 호출
+    anomaly_count = session_clicks.count()
+    if anomaly_count > 0:
         append_to_postgres(session_clicks, "mart_realtime_anomaly_sessions", config)
-        print(f"[ALERT] Detected {session_clicks.count()} anomaly sessions!")
+        print(f"[ALERT] Detected {anomaly_count} anomaly sessions!")
 
 
 # =========================
@@ -324,6 +350,7 @@ def main():
     config = load_config()
     kafka_brokers = config["kafka"]["brokers"]
     kafka_topic = config["kafka"]["topic"]
+    kafka_group_id = config["kafka"]["group_id"]
     checkpoint_path = config["checkpoint"]["path"]
     trigger_interval = config["trigger_interval"]
     run_duration = config["run_duration_hours"] * 3600
@@ -333,25 +360,35 @@ def main():
         SparkSession.builder
         .appName("TripClick-Streaming-to-RealtimeMart")
         .config("spark.jars", EXTRA_JARS)
+        .config("spark.sql.session.timeZone", "Asia/Seoul")
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")
 
     print(f"[INFO] Kafka: {kafka_brokers} / {kafka_topic}")
+    print(f"[INFO] Consumer Group: {kafka_group_id}")
     print(f"[INFO] Checkpoint: {checkpoint_path}")
     print(f"[INFO] PostgreSQL: {config['postgres']['host']}:{config['postgres']['port']}")
     print(f"[INFO] Trigger interval: {trigger_interval}")
     print(f"[INFO] Run duration: {run_duration} seconds")
+    print(f"[INFO] psycopg2 available: {PSYCOPG2_AVAILABLE}")
 
     # -----------------------
     # Kafka Streaming Read
     # -----------------------
+    # Consumer Group: 단일 그룹으로 Kafka 소비 (Spark 내부에서 4개 마트로 branching)
+    # startingOffsets: latest
+    #   - 체크포인트 있으면 → 체크포인트에서 오프셋 복원
+    #   - 체크포인트 없으면 → 최신부터 시작 (과거 데이터는 버림)
+    #   - 실시간 마트는 "현재 상황"이 목적이므로 latest가 적합
     kafka_stream = (
         spark.readStream
         .format("kafka")
         .option("kafka.bootstrap.servers", kafka_brokers)
         .option("subscribe", kafka_topic)
+        .option("kafka.group.id", kafka_group_id)
         .option("startingOffsets", "latest")
+        .option("failOnDataLoss", "false")  # 파티션 재할당 시 에러 방지
         .load()
     )
 

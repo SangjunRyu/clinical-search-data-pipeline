@@ -1,14 +1,22 @@
 """
 Spark Batch Job: Kafka → S3 Archive Raw Layer
 
-전체 Kafka 데이터를 배치로 읽어 S3 Archive Raw에 저장
-- 일배치로 실행 (Daily)
-- 전체 offset 읽기 (earliest → latest)
-- 파티션: event_date 기준
+과거 데이터를 Kafka에서 읽어 S3 Archive Raw에 저장
+- Producer가 과거 데이터를 현재 시점에 Kafka로 전송하는 시나리오
+- Kafka timestamp (도착 시점) 기준으로 읽기 범위 지정
+- event_date (원본 이벤트 시간) 기준으로 S3 파티션
+
+핵심 전략:
+1. Kafka timestamp 기반 범위 읽기 (startingOffsetsByTimestamp)
+2. event_date 파티션 기준 Dynamic Overwrite (중복 방지)
+3. Consumer Group 사용 안 함 (Stateless Batch)
+4. Airflow execution_date 연동으로 Idempotent 처리
 """
 
 import os
+import json
 import yaml
+from datetime import datetime, timedelta
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col,
@@ -87,6 +95,7 @@ TRIPCLICK_SCHEMA = StructType([
 def main():
     config = load_config()
     kafka_brokers = ",".join(config["kafka"]["brokers"])
+    kafka_topic = config["kafka"].get("topic", "tripclick_raw_logs")
     archive_raw_path = config["s3"]["archive_raw_path"]
 
     # Spark Session
@@ -94,23 +103,57 @@ def main():
         SparkSession.builder
         .appName("TripClick-Batch-to-ArchiveRaw")
         .config("spark.jars", EXTRA_JARS)
+        .config("spark.sql.session.timeZone", "Asia/Seoul")
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")
 
     print(f"[INFO] Kafka brokers: {kafka_brokers}")
+    print(f"[INFO] Kafka topic: {kafka_topic}")
     print(f"[INFO] Archive Raw path: {archive_raw_path}")
 
-    # -----------------------
-    # Kafka Batch Read (전체)
-    # -----------------------
+    # =========================
+    # Execution Date (Airflow 연동)
+    # =========================
+    # EXECUTION_DATE: 처리 대상 날짜 (Airflow ds)
+    # 없으면 어제 날짜를 기본값으로 사용
+    execution_date_str = os.getenv("EXECUTION_DATE")
+    if execution_date_str:
+        execution_date = datetime.strptime(execution_date_str, "%Y-%m-%d")
+    else:
+        # 기본값: 오늘 00:00 기준
+        execution_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Kafka timestamp 범위: execution_date 전날 00:00 ~ execution_date 00:00
+    # 예: EXECUTION_DATE=2026-02-03 → 2026-02-02 00:00 ~ 2026-02-03 00:00
+    start_dt = execution_date - timedelta(days=1)
+    end_dt = execution_date
+
+    start_ts = int(start_dt.timestamp() * 1000)  # milliseconds
+    end_ts = int(end_dt.timestamp() * 1000)
+
+    print(f"[INFO] Execution date: {execution_date_str or 'not set (using today)'}")
+    print(f"[INFO] Kafka timestamp range: {start_dt} ~ {end_dt}")
+    print(f"[INFO] Timestamp (ms): {start_ts} ~ {end_ts}")
+
+    # =========================
+    # Kafka Batch Read (Timestamp 기반)
+    # =========================
+    # Consumer Group 사용 안 함 (Stateless Batch)
+    # -1: 모든 파티션에 동일 timestamp 적용
     kafka_df = (
         spark.read
         .format("kafka")
         .option("kafka.bootstrap.servers", kafka_brokers)
-        .option("subscribe", "tripclick_raw_logs")
-        .option("startingOffsets", "earliest")
-        .option("endingOffsets", "latest")
+        .option("subscribe", kafka_topic)
+        .option(
+            "startingOffsetsByTimestamp",
+            json.dumps({kafka_topic: {"-1": start_ts}})
+        )
+        .option(
+            "endingOffsetsByTimestamp",
+            json.dumps({kafka_topic: {"-1": end_ts}})
+        )
         .load()
     )
 
@@ -122,9 +165,9 @@ def main():
         spark.stop()
         return
 
-    # -----------------------
+    # =========================
     # Parse JSON
-    # -----------------------
+    # =========================
     parsed_df = (
         kafka_df
         .selectExpr(
@@ -162,28 +205,48 @@ def main():
         )
     )
 
-    # -----------------------
-    # Write to S3 Archive Raw (Parquet)
-    # -----------------------
+    # 파싱된 데이터 검증
+    valid_df = parsed_df.filter(col("event_date").isNotNull())
+    valid_count = valid_df.count()
+    print(f"[INFO] Valid records (with event_date): {valid_count}")
+
+    if valid_count == 0:
+        print("[WARN] No valid records after parsing. Exiting.")
+        spark.stop()
+        return
+
+    # event_date 분포 확인
+    print("[INFO] Event date distribution:")
+    valid_df.groupBy("event_date").count().orderBy("event_date").show(truncate=False)
+
+    # =========================
+    # Write to S3 Archive Raw
+    # =========================
+    # Dynamic Partition Overwrite: 해당 event_date 파티션만 덮어쓰기
+    # → 같은 날짜 재실행해도 중복 없음
+    # → 다른 날짜 파티션은 건드리지 않음
+    spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
+
     print(f"[INFO] Writing to Archive Raw: {archive_raw_path}")
+    print("[INFO] Using Dynamic Partition Overwrite mode")
 
     (
-        parsed_df
+        valid_df
         .write
-        .mode("append")  # 기존 데이터에 추가
+        .mode("overwrite")
         .partitionBy("event_date")
         .parquet(archive_raw_path)
     )
 
-    print(f"[INFO] Successfully wrote {total_count} records to Archive Raw.")
+    print(f"[INFO] Successfully wrote {valid_count} records to Archive Raw.")
 
-    # -----------------------
+    # =========================
     # 검증
-    # -----------------------
+    # =========================
     verify_df = spark.read.parquet(archive_raw_path)
     print(f"[INFO] Archive Raw total records: {verify_df.count()}")
-    verify_df.printSchema()
-    verify_df.show(5, truncate=False)
+    print("[INFO] Archive Raw partitions:")
+    verify_df.groupBy("event_date").count().orderBy("event_date").show(truncate=False)
 
     spark.stop()
 

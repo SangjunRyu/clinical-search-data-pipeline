@@ -75,11 +75,16 @@ with DAG(
     # Batch to Archive Raw (via SSH)
     # =========================
     # Spark 서버의 Docker 컨테이너에서 직접 spark-submit 실행
+    # {{ ds }}: Airflow execution_date (YYYY-MM-DD 형식)
     batch_to_archive_raw = SSHOperator(
         task_id="batch_to_archive_raw",
         ssh_conn_id=SPARK_SSH_CONN_ID,
         command=f"""
-docker exec spark-master spark-submit \\
+docker exec \\
+  -e EXECUTION_DATE="{{{{ ds }}}}" \\
+  -e KAFKA_BROKERS="{KAFKA_BROKERS}" \\
+  -e S3_ARCHIVE_RAW_PATH="{S3_ARCHIVE_RAW_PATH}" \\
+  spark-master spark-submit \\
   --master spark://spark-master:7077 \\
   --packages {SPARK_PACKAGES} \\
   --conf spark.hadoop.fs.s3a.access.key={AWS_ACCESS_KEY} \\

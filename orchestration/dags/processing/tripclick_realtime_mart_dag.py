@@ -35,6 +35,8 @@ DEFAULT_ARGS = {
 # Airflow Variables & Connections
 # =========================
 KAFKA_BROKERS = Variable.get("KAFKA_BROKERS")
+KAFKA_TOPIC = Variable.get("KAFKA_TOPIC", default_var="tripclick_raw_logs")
+KAFKA_GROUP_ID = Variable.get("KAFKA_GROUP_ID", default_var="tripclick-realtime-mart")
 S3_CHECKPOINT_PATH = Variable.get(
     "S3_CHECKPOINT_PATH",
     default_var="s3a://tripclick-lake-sangjun/checkpoint/"
@@ -108,6 +110,8 @@ with DAG(
         command=f"""
 docker exec \\
   -e KAFKA_BROKERS="{KAFKA_BROKERS}" \\
+  -e KAFKA_TOPIC="{KAFKA_TOPIC}" \\
+  -e KAFKA_GROUP_ID="{KAFKA_GROUP_ID}" \\
   -e S3_CHECKPOINT_PATH="{S3_CHECKPOINT_PATH}realtime_mart/" \\
   -e POSTGRES_HOST="{POSTGRES_HOST}" \\
   -e POSTGRES_PORT="{POSTGRES_PORT}" \\
