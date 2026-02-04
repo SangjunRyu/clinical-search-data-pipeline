@@ -177,6 +177,39 @@ Kafka → streaming_to_realtime_mart → PostgreSQL
 
 ---
 
+## 시각화 (Apache Superset)
+
+### Daily Mart 대시보드
+
+Batch Mart 데이터 기반 일별 분석 대시보드
+
+```
+┌─────────────┬─────────────┬─────────────┬─────────────┐
+│   191k      │   53.6k     │   105k      │     15      │
+│ Total Events│ Unique Sess │ Unique Docs │  Peak Hour  │
+├─────────────┴─────────────┼─────────────┴─────────────┤
+│  📄 Popular Documents     │  🏥 Clinical Areas        │
+│  (Table)                  │  (Pie Chart)              │
+│                           │                           │
+│  Alzheimer's...  | 343    │  Cardiology: 13.75%       │
+│  Acute Pain...   | 250    │  Women's Health: 10.4%    │
+│  Letrozole...    | 243    │  Pediatrics: 9.8%         │
+└───────────────────────────┴───────────────────────────┘
+```
+
+| 차트 | 타입 | 데이터소스 |
+|------|------|-----------|
+| Total Events | Big Number | `mart_daily_traffic` |
+| Unique Sessions | Big Number | `mart_daily_traffic` |
+| Unique Documents | Big Number | `mart_daily_traffic` |
+| Peak Hour | Big Number | `mart_daily_traffic` |
+| Popular Documents | Table | `mart_popular_documents` |
+| Clinical Areas | Pie Chart | `mart_clinical_areas` |
+
+> 상세 대시보드 구성은 [mart/mart.md](mart/mart.md#대시보드-구성) 참조
+
+---
+
 ## 레이어별 상세 문서
 
 | 레이어 | 문서 | 설명 |
@@ -231,6 +264,8 @@ docker-compose -f orchestration/docker-compose.yaml up -d
 - [x] 아키텍처 단순화 (S3 중간 레이어 제거)
 - [x] Spark Jobs 통합 (etl_to_batch_mart.py)
 - [x] DAG 정리 및 단순화
+- [x] Superset Daily Mart 대시보드 구현
+- [ ] Superset Realtime 대시보드 구현
 - [ ] Terraform/CloudFormation 템플릿
 - [ ] CI/CD 파이프라인 (GitHub Actions)
 - [ ] 모니터링 (Prometheus + Grafana)

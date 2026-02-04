@@ -14,7 +14,6 @@ Spark Batch Job: Kafka → S3 Archive Raw Layer
 """
 
 import os
-import json
 import yaml
 from datetime import datetime, timedelta
 from pyspark.sql import SparkSession
@@ -140,20 +139,14 @@ def main():
     # Kafka Batch Read (Timestamp 기반)
     # =========================
     # Consumer Group 사용 안 함 (Stateless Batch)
-    # -1: 모든 파티션에 동일 timestamp 적용
+    # startingTimestamp/endingTimestamp: 모든 파티션에 동일 timestamp 적용
     kafka_df = (
         spark.read
         .format("kafka")
         .option("kafka.bootstrap.servers", kafka_brokers)
         .option("subscribe", kafka_topic)
-        .option(
-            "startingOffsetsByTimestamp",
-            json.dumps({kafka_topic: {"-1": start_ts}})
-        )
-        .option(
-            "endingOffsetsByTimestamp",
-            json.dumps({kafka_topic: {"-1": end_ts}})
-        )
+        .option("startingTimestamp", start_ts)
+        .option("endingTimestamp", end_ts)
         .load()
     )
 

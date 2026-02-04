@@ -565,21 +565,109 @@ Password: mart_password
 
 ## 대시보드 구성
 
-### 1. 실시간 모니터링 (Realtime Mart)
-- 실시간 트래픽 추이 (Line Chart) - `mart_realtime_traffic_minute`
-- 현재 인기 문서 TOP 20 (Table) - `mart_realtime_top_docs_1h`
-- 임상영역 트렌드 (Bar Chart) - `mart_realtime_clinical_trend_24h`
-- 이상징후 알림 (Alert Table) - `mart_realtime_anomaly_sessions`
+### Daily Mart 대시보드 (구현 완료)
 
-### 2. 일별 리포트 (Batch Mart)
-- 일별 트래픽 개요 (Line Chart) - `mart_daily_traffic`
-- 피크 시간대 분포 (Heatmap) - `mart_daily_traffic`
-- 임상 분야별 검색 비율 (Pie Chart) - `mart_clinical_areas`
-- Top 20 인기 문서 (Table) - `mart_popular_documents`
+Batch Mart 데이터를 기반으로 한 일별 분석 대시보드입니다.
 
-### 3. 세션 행동 분석 (Batch Mart)
-- 세션 지속 시간 분포 (Histogram) - `mart_session_analysis`
-- 클릭 수 분포 (Box Plot) - `mart_session_analysis`
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  📊 Daily Mart Dashboard                                                 │
+├─────────────┬─────────────┬─────────────┬───────────────────────────────┤
+│  191k       │  53.6k      │  105k       │   15                          │
+│  Total      │  Unique     │  Unique     │   Peak                        │
+│  Events     │  Sessions   │  Documents  │   Hour                        │
+├─────────────┴─────────────┴─────────────┴───────────────────────────────┤
+│                                                                          │
+│  ┌─────────────────────────┐  ┌────────────────────────────────────┐    │
+│  │  mart_popular_docs      │  │  mart_clinical_areas               │    │
+│  │  (Table)                │  │  (Pie Chart)                       │    │
+│  │                         │  │                                    │    │
+│  │  title    | view_count  │  │     Cardiology: 13.75%             │    │
+│  │  ─────────┼───────────  │  │     Pediatrics: 9.8%               │    │
+│  │  Alzhei...│    343      │  │     OB-Gyn: 8.5%                   │    │
+│  │  Acute... │    250      │  │     Infectious Disease: 7.2%       │    │
+│  │  Letroz...│    243      │  │     Women's Health: 10.4%          │    │
+│  │  ...      │    ...      │  │     ...                            │    │
+│  └─────────────────────────┘  └────────────────────────────────────┘    │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 차트 구성
+
+| 차트 | 타입 | 데이터소스 | 메트릭 | 설명 |
+|------|------|-----------|--------|------|
+| Total Events | Big Number | `mart_daily_traffic` | `total_events` | 총 클릭 이벤트 수 |
+| Unique Sessions | Big Number | `mart_daily_traffic` | `unique_sessions` | 고유 세션 수 |
+| Unique Documents | Big Number | `mart_daily_traffic` | `unique_documents` | 조회된 문서 종류 |
+| Peak Hour | Big Number | `mart_daily_traffic` | `peak_hour` | 트래픽 피크 시간대 |
+| Popular Docs | Table | `mart_popular_documents` | `title`, `view_count` | 인기 문서 순위 |
+| Clinical Areas | Pie Chart | `mart_clinical_areas` | `clinical_area`, `search_count` | 임상 분야별 검색 비율 |
+
+#### SQL 쿼리 예시
+
+**KPI - Total Events:**
+```sql
+SELECT total_events
+FROM mart_daily_traffic
+WHERE event_date = (SELECT MAX(event_date) FROM mart_daily_traffic)
+```
+
+**Popular Documents:**
+```sql
+SELECT title, SUM(view_count) as view_count
+FROM mart_popular_documents
+WHERE event_date = (SELECT MAX(event_date) FROM mart_popular_documents)
+GROUP BY title
+ORDER BY view_count DESC
+LIMIT 20
+```
+
+**Clinical Areas Pie Chart:**
+```sql
+SELECT clinical_area, SUM(search_count) as total_searches
+FROM mart_clinical_areas
+WHERE event_date = (SELECT MAX(event_date) FROM mart_clinical_areas)
+GROUP BY clinical_area
+ORDER BY total_searches DESC
+```
+
+---
+
+### 실시간 모니터링 대시보드 (계획)
+
+Realtime Mart 데이터를 기반으로 한 실시간 모니터링 대시보드입니다.
+
+| 차트 | 타입 | 데이터소스 | 설명 |
+|------|------|-----------|------|
+| 실시간 트래픽 | Line Chart | `mart_realtime_traffic_minute` | 분 단위 클릭 추이 |
+| 인기 문서 TOP 20 | Table | `mart_realtime_top_docs_1h` | 최근 1시간 인기 문서 |
+| 임상영역 트렌드 | Bar Chart | `mart_realtime_clinical_trend_24h` | 24시간 트렌드 |
+| 이상징후 알림 | Alert Table | `mart_realtime_anomaly_sessions` | 클릭 폭증 세션 감지 |
+
+---
+
+### 세션 행동 분석 대시보드 (계획)
+
+세션 레벨 상세 분석 대시보드입니다.
+
+| 차트 | 타입 | 데이터소스 | 설명 |
+|------|------|-----------|------|
+| 세션 시간 분포 | Histogram | `mart_session_analysis` | 세션 지속 시간 분포 |
+| 클릭 수 분포 | Box Plot | `mart_session_analysis` | 세션당 클릭 수 분포 |
+| Engagement 분석 | Scatter Plot | `mart_popular_documents` | 조회수 vs 유니크 세션 |
+
+---
+
+### 인사이트 예시 (2026-01-25 기준)
+
+| 지표 | 값 | 인사이트 |
+|------|-----|---------|
+| Total Events | 191K | 하루 약 19만 건의 검색 클릭 발생 |
+| Unique Sessions | 53.6K | 약 5.4만 개의 고유 세션 |
+| Peak Hour | 15시 | 오후 3시가 가장 트래픽이 많음 |
+| Top Clinical Area | Cardiology (13.75%) | 심장학 분야가 가장 인기 |
+| Top Document | Alzheimer's 관련 문서 (343회) | 알츠하이머/치매 연구 관심 높음 |
 
 ---
 
@@ -626,5 +714,10 @@ docker exec spark-master spark-submit \
 - [x] 자동화 스케줄링 (Airflow SSHOperator 연동)
 - [x] Batch/Realtime 2계층 Mart 설계
 - [x] Realtime Mart 테이블 스키마 정의
-- [ ] Superset 대시보드 템플릿
+- [x] Superset Daily Mart 대시보드 구현
+  - [x] KPI Big Number 차트 (Total Events, Sessions, Documents, Peak Hour)
+  - [x] Popular Documents Table
+  - [x] Clinical Areas Pie Chart
+- [ ] Superset Realtime 대시보드 구현
 - [ ] 데이터 품질 검증 로직
+- [ ] 대시보드 자동 새로고침 설정
